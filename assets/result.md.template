@@ -1,0 +1,42 @@
+---
+protocol_version: 3
+kind: "result"
+run_id: "<run-id>"
+task_id: "TASK-001"
+task_sha256: "<copy-from-task-ready-event>"
+agent_id: "<agent-id>"
+attempt_id: "ATTEMPT-001"
+status: "<completed|blocked|failed>"
+idempotency_key: "<run-id>:TASK-001:result:ATTEMPT-001:v1"
+created_at: "<iso8601>"
+changed_files: []
+implementation_commit: null
+uncommitted_reason: null
+verification_status: "<passed|failed|not_run>"
+verification_refs: []
+risk_summary: "<residual-risk>"
+rollback_plan: "<rollback-or-not-applicable-with-reason>"
+handoff_to: null
+---
+
+# Outcome
+
+State what was completed and what remains.
+
+# Changed Files
+
+- Use absolute paths or project-relative paths.
+
+# Evidence
+
+- Commands and results.
+- Screenshots, logs, artifacts, or commit hashes.
+- Explicitly list checks that were not run.
+
+# Risks
+
+- Residual risk and unverified scope.
+
+# Handoff
+
+- Recommended next event and target agent.

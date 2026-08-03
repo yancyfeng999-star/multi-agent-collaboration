@@ -1,0 +1,11 @@
+protocol_version: 3
+kind: "<review|qa|security|git_status|environment_impact|rollback|release|verification>"
+run_id: "<run-id>"
+evidence_id: "<evidence-id>"
+task_id: "TASK-001"
+agent_id: "<agent-id>"
+status: "<status>"
+summary: "<evidence-summary>"
+artifact_refs: []
+artifact_hashes: {}
+created_at: "<iso8601>"

@@ -1,0 +1,7 @@
+protocol_version: 3
+project_id: "<project-id>"
+project_root: "<absolute-project-root>"
+allowed_roots: ["<absolute-project-root>"]
+created_at: "<iso8601>"
+coordinator: "coordinator"
+secrets_policy: "references_only"

@@ -1,0 +1,15 @@
+protocol_version: 3
+run_id: "<run-id>"
+event_id: "<uuid>"
+sequence: 1
+event: "TASK_READY"
+task_id: "TASK-001"
+from_agent: "coordinator"
+to_agent: "<agent-id>"
+created_at: "<iso8601>"
+correlation_id: "<run-id>:TASK-001"
+causation_id: null
+idempotency_key: "<run-id>:TASK-001:TASK_READY:v1"
+summary: "<short-summary>"
+payload_path: "<relative-or-absolute-path>"
+payload_sha256: "<sha256>"

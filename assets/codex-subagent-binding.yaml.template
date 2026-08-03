@@ -1,0 +1,12 @@
+protocol_version: 3
+kind: "codex_subagent_binding"
+run_id: "<run-id>"
+task_id: "TASK-001"
+agent_id: "<agent-id>"
+runtime: "codex_subagent"
+native_agent_id: "<opaque-agent-id>"
+task_path: "<absolute-task-path>"
+task_sha256: "<copy-from-task-ready-event>"
+status: "<requested|ready|running|blocked|completed|failed|closed>"
+created_at: "<iso8601>"
+updated_at: "<iso8601>"

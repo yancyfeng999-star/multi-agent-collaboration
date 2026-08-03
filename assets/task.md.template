@@ -1,0 +1,54 @@
+---
+protocol_version: 3
+run_id: "<run-id>"
+task_id: "TASK-001"
+title: "<task-title>"
+status: "draft"
+owner_agent: "<agent-id>"
+reviewer_agent: "<agent-id-or-null>"
+qa_agent: "<agent-id-or-null>"
+release_agent: "<agent-id-or-null>"
+release_train_id: "<release-train-id>"
+delivery_version: "<target-version-or-null>"
+version_contract_sha256: "<sha256>"
+dependencies: []
+owned_paths: []
+forbidden_paths: []
+risk_flags: []
+human_gates: []
+human_gate_hashes: {}
+idempotency_key: "<run-id>:TASK-001:v1"
+created_at: "<iso8601>"
+---
+
+# Objective
+
+State one concrete outcome.
+
+# Inputs
+
+- Project facts and source paths.
+- Upstream task results and commit hashes.
+
+# Required Output
+
+- Exact files, artifacts, or decisions expected.
+- Result document path under the owner's outbox.
+
+# Acceptance Criteria
+
+- List observable pass/fail conditions.
+
+# Verification
+
+- List commands, browser checks, or evidence required.
+
+# Boundaries
+
+- Preserve unrelated changes.
+- Do not exceed `owned_paths`.
+- Stop at human gates and prohibited operations.
+
+# Handoff
+
+Write changed files, commits, checks, risks, rollback notes, and the next owner.

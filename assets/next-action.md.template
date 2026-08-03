@@ -1,0 +1,12 @@
+# Next Action
+
+- Run: `<run-id>`
+- Current status: `<status>`
+- Ready task: `<task-id-or-none>`
+- Target agent: `<agent-id-or-user>`
+- Transport: `<codex_native|document_bus|hybrid>`
+- Version governance: `<tracked|not_applicable>`
+- Release train: `<release-train-id>`
+- Delivery version: `<target-version-or-null>`
+- Action: `<exact instruction or command>`
+- Blocking gate: `<none-or-gate>`

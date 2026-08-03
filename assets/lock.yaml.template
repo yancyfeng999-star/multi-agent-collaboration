@@ -1,0 +1,9 @@
+protocol_version: 3
+kind: "lock"
+run_id: "<run-id>"
+lock_id: "<uuid>"
+resource: "<absolute-path-or-logical-resource>"
+owner_task: "TASK-001"
+owner_agent: "<agent-id>"
+acquired_at: "<iso8601>"
+lease_expires_at: "<iso8601>"

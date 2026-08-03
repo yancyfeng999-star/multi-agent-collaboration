@@ -1,0 +1,19 @@
+protocol_version: 3
+run_id: "<run-id>"
+agents:
+  - agent_id: "coordinator"
+    runtime: "<codex_thread|codex_subagent|document|document_subagent>"
+    role: "Coordinator"
+    status: "ready"
+    parent_agent_id: null
+    delegation_depth: 0
+    readable_paths:
+      - "<absolute-project-root>"
+    writable_paths:
+      - "<absolute-document-bus-root>"
+    forbidden_paths: []
+    thread_id: null
+    inbox: "inbox/coordinator"
+    outbox: "outbox/coordinator"
+    current_task: null
+    handoff_to: null

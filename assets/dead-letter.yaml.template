@@ -1,0 +1,11 @@
+protocol_version: 3
+kind: "dead_letter"
+run_id: "<run-id>"
+task_id: "TASK-001"
+event_id: "<failed-event-id>"
+attempts: 3
+last_attempt_at: "<iso8601>"
+reason: "<failure-reason>"
+side_effect_state: "<none|unknown|confirmed>"
+recovery_owner: "coordinator"
+requires_human: true

@@ -1,0 +1,10 @@
+protocol_version: 3
+kind: "human_gate"
+run_id: "<run-id>"
+gate_id: "<gate-id>"
+task_id: null
+scope: "<gate-scope>"
+status: "<pending|approved|rejected>"
+approved_by: "user"
+approved_at: "<iso8601>"
+summary: "<decision-summary>"

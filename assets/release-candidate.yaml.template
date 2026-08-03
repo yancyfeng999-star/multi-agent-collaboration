@@ -1,0 +1,14 @@
+protocol_version: 3
+kind: "release_candidate"
+run_id: "<run-id>"
+release_train_id: "<release-train-id>"
+candidate_id: "RC-001"
+candidate_version: "<target-version>-rc.1"
+target_version: "<target-version>"
+version_contract_sha256: "<sha256>"
+owner_agent: "coordinator"
+implementation_commit: "<commit-or-null>"
+artifact_refs: []
+artifact_hashes: {}
+summary: "<candidate-summary>"
+created_at: "<iso8601>"

@@ -1,0 +1,4 @@
+interface:
+  display_name: "多智能体协同 | Multi-Agent Collaboration"
+  short_description: "以版本合同、可验证文档、权限边界和治理门禁为底座的多智能体协同"
+  default_prompt: "使用 $multi-agent-collaboration 从询问和只读扫描开始，判断项目版本治理需求，再建立可恢复、可验证的多智能体协同流程。"

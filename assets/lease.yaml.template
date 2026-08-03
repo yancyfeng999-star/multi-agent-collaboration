@@ -1,0 +1,10 @@
+protocol_version: 3
+kind: "lease"
+run_id: "<run-id>"
+task_id: "TASK-001"
+task_sha256: "<copy-from-task-ready-event>"
+agent_id: "<agent-id>"
+attempt_id: "ATTEMPT-001"
+lease_id: "<stable-lease-id>"
+acquired_at: "<iso8601>"
+lease_expires_at: "<iso8601>"
