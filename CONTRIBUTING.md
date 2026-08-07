@@ -18,15 +18,19 @@ Thank you for improving Multi-Agent Collaboration.
 Run the complete test suite:
 
 ```bash
-PYTHONDONTWRITEBYTECODE=1 \
-python3 -m unittest discover -s tests -v
+PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p 'test_*.py'
 ```
 
-Compile the protocol scripts:
+Compile the protocol scripts and tests:
 
 ```bash
-python3 -m py_compile scripts/*.py
+python3 -m compileall -q scripts tests
 ```
+
+Before a release, also run all top-level CLI `--help` commands, parse every JSON Schema with the
+Python standard library, validate Markdown local links, and run `git diff --check`. See
+[tests/README.md](tests/README.md) for the current release gate.
 
 When behavior changes, update the implementation, templates, tests, `SKILL.md`, relevant
 references, root `README.md`, and `CHANGELOG.md` together.

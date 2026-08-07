@@ -4,7 +4,8 @@
 from __future__ import annotations
 
 import argparse
-import fcntl
+import hashlib
+from project_memory_lib import exclusive_lock
 import json
 import os
 import re
@@ -31,6 +32,7 @@ from protocol_lib import (
     scalar_map,
     sha256,
 )
+from record_agent_activity import record_agent_activity
 
 
 RUNTIMES = ("codex_thread", "codex_subagent", "document", "document_subagent")
@@ -56,6 +58,12 @@ def safe_identifier(value: str, label: str) -> str:
 
 def add_common_run_argument(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--run-dir", required=True)
+
+
+def add_activity_bridge_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--activity-project-root")
+    parser.add_argument("--activity-session-id")
+    parser.add_argument("--activity-runtime-profile-ref")
 
 
 def parse_args() -> argparse.Namespace:
@@ -127,6 +135,8 @@ def parse_args() -> argparse.Namespace:
     evidence.add_argument("--agent-id", required=True)
     evidence.add_argument("--summary", required=True)
     evidence.add_argument("--artifact-ref", action="append", default=[])
+    evidence.add_argument("--attempt-id", default="ATTEMPT-001")
+    add_activity_bridge_arguments(evidence)
 
     configure = subparsers.add_parser("configure-run", help="Set governed manifest fields")
     add_common_run_argument(configure)
@@ -154,6 +164,7 @@ def parse_args() -> argparse.Namespace:
     ack.add_argument("--attempt-id", default="ATTEMPT-001")
     ack.add_argument("--lease-seconds", type=int)
     ack.add_argument("--idempotency-key", required=True)
+    add_activity_bridge_arguments(ack)
 
     lease = subparsers.add_parser("write-lease", help="Write an immutable lease or renewal")
     add_common_run_argument(lease)
@@ -162,6 +173,7 @@ def parse_args() -> argparse.Namespace:
     lease.add_argument("--lease-id", required=True)
     lease.add_argument("--attempt-id", default="ATTEMPT-001")
     lease.add_argument("--lease-seconds", type=int)
+    add_activity_bridge_arguments(lease)
 
     result = subparsers.add_parser("write-result", help="Write one immutable owner result")
     add_common_run_argument(result)
@@ -182,6 +194,7 @@ def parse_args() -> argparse.Namespace:
     result.add_argument("--risk-summary", required=True)
     result.add_argument("--rollback-plan", required=True)
     result.add_argument("--handoff-to")
+    add_activity_bridge_arguments(result)
 
     dead_letter = subparsers.add_parser(
         "write-dead-letter",
@@ -248,6 +261,113 @@ def project_context(project_path: Path) -> tuple[Path, list[str]]:
         source=str(project_path),
     )
     return project_root, allowed_roots
+
+
+def record_source_activity(
+    args: argparse.Namespace,
+    *,
+    manifest: dict[str, str],
+    source_path: Path,
+    source_kind: str,
+    record_kind: str,
+    attempt_status: str,
+    task_status: str,
+    outcome: str | None,
+    summary: str,
+    evidence_refs: list[dict[str, object]] | None = None,
+) -> None:
+    supplied = (
+        args.activity_project_root,
+        args.activity_session_id,
+        args.activity_runtime_profile_ref,
+    )
+    if not any(supplied):
+        return
+    if not all(supplied):
+        raise SystemExit("activity bridge requires project root, session id, and runtime profile ref")
+    profile = (
+        Path(args.activity_project_root).expanduser().resolve()
+        / ".multi-agent-collaboration" / "agents" / args.agent_id
+        / args.activity_runtime_profile_ref
+    )
+    if not profile.is_file():
+        raise SystemExit("activity runtime profile does not exist")
+    try:
+        snapshot = json.loads(profile.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SystemExit("activity runtime profile is invalid") from exc
+
+    def known(field: str) -> str | None:
+        value = snapshot.get(field)
+        return str(value.get("value")) if isinstance(value, dict) and value.get("status") == "known" else None
+
+    payload = {
+        "schema_version": 1,
+        "record_kind": record_kind,
+        "recorded_at": now_iso(),
+        "run_id": manifest["run_id"],
+        "task_id": args.task_id,
+        "attempt_id": args.attempt_id,
+        "agent_id": args.agent_id,
+        "session_id": args.activity_session_id,
+        "parent_agent_id": None,
+        "runtime_profile": {
+            "runtime": known("runtime_kind") or "document",
+            "provider": known("provider"),
+            "model": known("model"),
+            "profile_name": known("profile"),
+            "node_id": None,
+            "host_fingerprint": None,
+            "native_binding_ref": args.activity_runtime_profile_ref,
+            "native_binding_sha256": sha256(profile),
+        },
+        "status": {
+            "attempt_status": attempt_status,
+            "task_status_observed": task_status,
+            "outcome": outcome,
+            "reason_code": None,
+            "summary": summary,
+        },
+        "tool_summary": None,
+        "verification": None,
+        "artifacts": [],
+        "evidence_refs": evidence_refs or [],
+        "usage": {
+            "input_tokens": None, "output_tokens": None, "cached_input_tokens": None,
+            "reasoning_tokens": None, "total_tokens": None, "cost_minor_units": None,
+            "currency": None, "usage_source": "unavailable", "source_ref": None,
+            "source_sha256": None, "reported_at": None,
+        },
+        "source": {
+            "source_kind": source_kind,
+            "source_ref": source_path.relative_to(Path(args.activity_project_root).resolve()).as_posix()
+            if source_path.is_relative_to(Path(args.activity_project_root).resolve())
+            else source_path.relative_to(Path(args.run_dir).resolve()).as_posix(),
+            "source_sha256": sha256(source_path),
+            "source_event_id": None,
+            "correlation_id": f"{manifest['run_id']}:{args.task_id}:{args.attempt_id}",
+            "causation_id": None,
+        },
+        "supersedes_record_sha256": None,
+    }
+    try:
+        record_agent_activity(
+            project_root=args.activity_project_root,
+            agent_id=args.agent_id,
+            payload=payload,
+        )
+    except Exception as exc:
+        code = exc.args[0] if getattr(exc, "args", None) else type(exc).__name__
+        raise SystemExit(f"activity bridge write failed: {code}") from exc
+
+
+def write_source_with_activity(path: Path, content: str, callback) -> None:
+    atomic_write(path, content)
+    try:
+        callback()
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise
 
 
 def load_version_contract(
@@ -641,9 +761,7 @@ def command_record_evidence(args: argparse.Namespace) -> None:
         if not path_within(ref_path, [run_dir, *allowed_roots], project_root):
             raise SystemExit(f"artifact reference exceeds run and project roots: {reference}")
         artifact_hashes[reference] = sha256(ref_path)
-    atomic_write(
-        path,
-        "\n".join(
+    content = "\n".join(
             (
                 f"protocol_version: {PROTOCOL_VERSION}",
                 f"kind: {quote(args.kind)}",
@@ -658,8 +776,13 @@ def command_record_evidence(args: argparse.Namespace) -> None:
                 f"created_at: {quote(now_iso())}",
                 "",
             )
-        ),
     )
+    write_source_with_activity(path, content, lambda: record_source_activity(
+        args, manifest=manifest, source_path=path, source_kind="evidence", record_kind="artifact_evidence",
+        attempt_status="reviewing", task_status="reviewing", outcome=None, summary=args.summary,
+        evidence_refs=[{"evidence_id": args.evidence_id, "kind": args.kind,
+            "ref": path.relative_to(run_dir).as_posix(), "sha256": sha256(path),
+            "status": args.status if args.status in {"passed", "failed", "not_run", "inconclusive"} else "inconclusive"}]))
     print(path)
 
 
@@ -722,9 +845,7 @@ def command_write_ack(args: argparse.Namespace) -> None:
     )
     if path.exists():
         raise SystemExit(f"ACK already exists and is immutable: {path}")
-    atomic_write(
-        path,
-        "\n".join(
+    content = "\n".join(
             (
                 f"protocol_version: {PROTOCOL_VERSION}",
                 'kind: "ack"',
@@ -738,8 +859,10 @@ def command_write_ack(args: argparse.Namespace) -> None:
                 f"idempotency_key: {quote(args.idempotency_key)}",
                 "",
             )
-        ),
     )
+    write_source_with_activity(path, content, lambda: record_source_activity(
+        args, manifest=manifest, source_path=path, source_kind="ack", record_kind="attempt_started",
+        attempt_status="acknowledged", task_status="acknowledged", outcome=None, summary="Task attempt acknowledged"))
     print(path)
 
 
@@ -762,9 +885,7 @@ def command_write_lease(args: argparse.Namespace) -> None:
     )
     if path.exists():
         raise SystemExit(f"lease already exists and is immutable: {path}")
-    atomic_write(
-        path,
-        "\n".join(
+    content = "\n".join(
             (
                 f"protocol_version: {PROTOCOL_VERSION}",
                 'kind: "lease"',
@@ -778,8 +899,10 @@ def command_write_lease(args: argparse.Namespace) -> None:
                 f"lease_expires_at: {quote(lease_expires.isoformat(timespec='seconds'))}",
                 "",
             )
-        ),
     )
+    write_source_with_activity(path, content, lambda: record_source_activity(
+        args, manifest=manifest, source_path=path, source_kind="lease", record_kind="status_transition",
+        attempt_status="running", task_status="running", outcome=None, summary=f"Lease {args.lease_id} acquired"))
     print(path)
 
 
@@ -815,9 +938,7 @@ def command_write_result(args: argparse.Namespace) -> None:
     result_idempotency_key = (
         f"{manifest['run_id']}:{args.task_id}:result:{args.attempt_id}:v1"
     )
-    atomic_write(
-        path,
-        "\n".join(
+    content = "\n".join(
             (
                 "---",
                 f"protocol_version: {PROTOCOL_VERSION}",
@@ -845,8 +966,12 @@ def command_write_result(args: argparse.Namespace) -> None:
                 args.outcome,
                 "",
             )
-        ),
     )
+    attempt_status = {"completed": "completed", "blocked": "blocked", "failed": "failed"}[args.status]
+    write_source_with_activity(path, content, lambda: record_source_activity(
+        args, manifest=manifest, source_path=path, source_kind="result", record_kind="attempt_finished",
+        attempt_status=attempt_status, task_status=attempt_status,
+        outcome="success" if args.status == "completed" else "failure", summary=args.outcome))
     print(path)
 
 
@@ -1072,10 +1197,8 @@ def main() -> int:
     lock_path = run_dir / "events" / ".sequence.lock"
     if not lock_path.parent.is_dir():
         raise SystemExit(f"invalid run directory: {run_dir}")
-    with lock_path.open("a+", encoding="utf-8") as lock:
-        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+    with exclusive_lock(lock_path):
         commands[args.command](args)
-        fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
     return 0
 
 

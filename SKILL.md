@@ -1,6 +1,6 @@
 ---
 name: multi-agent-collaboration
-description: 面向所有项目的半自动多智能体协同、任务编排与可验证通信。以通用文档协议作为所有智能体必须保留的通信底座，并在 Codex 中使用原生线程消息进行实时唤醒和调度。用于用户要求多智能体协同、多线程、多 Agent、并行开发、角色分工、任务接力、跨智能体 Review/QA、文档通信、Codex 线程调度、通用智能体协作或复杂项目总控时；支持 light、standard、strict 三级治理模式。
+description: Use when a project needs multiple agents, parallel task ownership, cross-session continuity, project-local audit trails, governed review/QA, or recovery across agent platforms.
 ---
 
 # 多智能体协同（Multi-Agent Collaboration）
@@ -20,6 +20,24 @@ description: 面向所有项目的半自动多智能体协同、任务编排与�
 - 有项目时，以目标项目自己的 AGENTS、README、架构和发布规范为约束。
 - 无项目时，由用户指定一个 coordination/output 目录保存文档总线。
 - 项目专属角色和标准只写入该次 run，不写回全局 Skill。
+
+## 能力路由
+
+先判断任务需要哪一层，不要默认把一次性并行任务升级为长期团队，也不要让长期项目绕过 Run 门禁。
+
+| 场景 | 选用能力 | 说明 |
+| --- | --- | --- |
+| 一次性、低风险、独立调查 | 简单并行或单个 Protocol v3 Run | 结束后可归档，不必创建长期身份 |
+| 单轮但高风险、需要 Review/QA/证据 | Protocol v3 Run | 使用任务、事件、锁、Review、QA 与收口门禁 |
+| 多天、多阶段、稳定角色或跨会话恢复 | 长期 Agent 层 | 建立 TEAM、身份、会话归档、checkpoint 与恢复包 |
+| 长期项目中的正式执行波次 | 长期层 + Run 层 | Run 负责执行事实；长期层负责跨 Run 身份、记忆与项目收口 |
+| 临时子 Agent | 父 Agent + 必要的 Run 记录 | 临时角色不自动升级为长期 Agent，结果由父 Agent 归档 |
+
+事实分工固定：
+
+- **长期 Agent 层**保存稳定身份、完整原文、历史 checkpoint、当前上下文和跨平台恢复资料。
+- **Protocol v3 Run**保存冻结任务、状态事件、ACK/lease、锁、Review、QA、证据和发布门禁。
+- **长期层 + Run 层**同时使用时，Run 是执行状态真源；长期层只通过受验证的桥接结果沉淀，不另造第二套任务状态机。
 
 ## 核心原则
 
@@ -93,6 +111,191 @@ description: 面向所有项目的半自动多智能体协同、任务编排与�
 任务 attempt、RC 编号和项目正式版本相互独立。返工只增加 attempt；重新集成增加 RC；
 只有交付范围或兼容性变化才重新评估目标项目版本。完整规则见
 [version-governance.md](references/version-governance.md)。
+
+
+## Agent 身份持久化
+
+多智能体项目需要长期稳定的 Agent 身份，而不是每次运行都重新定义。
+
+### 核心概念
+
+1. **项目 Agent** - 拥有稳定身份、职责和历史的长期协作角色
+2. **临时子 Agent** - 一次性的、边界明确的调查或执行任务
+3. **总控 Agent** - 负责维护总目标、拆解任务、分配并行波次
+
+### Agent 目录结构
+
+每个长期 Agent 必须有独立目录：
+
+```text
+.multi-agent-collaboration/agents/<agent-id>/
+├── ROLE.md                    # 岗位章程
+├── SYSTEM_PROMPT.md           # 恢复提示词
+├── CHECKLIST.md               # 检查清单
+├── conversations/
+│   ├── CURRENT_CONTEXT.md     # 当前上下文
+│   ├── SESSION_MAP.json       # 平台会话映射
+│   ├── INDEX.md               # 对话索引
+│   ├── archive/               # 完整对话归档
+│   └── checkpoints/           # 压缩检查点
+├── tasks/                     # 任务文档
+├── handoffs/                  # 交接文档
+└── artifacts/                 # 证据产物
+```
+
+### 初始化 Agent 结构
+
+```bash
+python3 <skill-dir>/scripts/init_project_agents.py \
+  --project-root "<project-root>" \
+  --project-id "<project-id>" \
+  --project-name "<project-name>" \
+  --agents "A01-coordinator,A02-frontend,A03-backend" \
+  --governance standard \
+  --user-confirmed
+```
+
+详细规范见 [storage-protocol.md](references/storage-protocol.md)。
+
+### 运行资料采集
+
+长期 Agent 的 model、provider、platform、session、profile、workspace 和 runtime kind 必须
+按 [runtime-metadata.md](references/runtime-metadata.md) 记录为可追溯运行资料：
+
+- **自动探测优先，缺失才显式补充**：先读取获准的运行上下文、平台/桥接证据、已验证
+  `SESSION_MAP.json` 和固定 allowlist；只有缺字段或冲突需要裁决时，才请求 CLI 参数或人工输入。
+- **actual 与 declared 分开**：实际观测值使用 `observed_actual`；项目配置、Registry 或默认模型
+  只是 `declared_default`，不能证明本次会话实际使用了该值，也不能覆盖 actual。
+- **不编造完整性**：无法确认写 `unknown`；历史版本未采集写 `not_collected`；多个可信 actual
+  不一致写 `conflict` 并保留候选来源，禁止静默择一。三者都不能写成字符串 `"unknown"`。
+- **Token/费用不估算**：只接受 provider response、runtime meter 或 billing export 的真实回执并
+  绑定来源/hash；无回执时保持 `null` 和 `usage_source: unavailable`。
+- **secret 禁区**：不读取全量环境快照，不持久化 prompt、原始命令/输出、Authorization、Cookie、
+  API key、访问/刷新 token、私钥或带 query 的 URL。命中敏感字段或高置信秘密时 fail-closed，
+  错误和冲突记录也不得回显原值。
+
+运行资料快照和 activity 账本是审计证据，不是 Run 状态真源；变更时追加不可变记录，不原地
+改写旧记录。
+
+## 对话归档与检查点
+
+### 三层上下文模型
+
+1. **完整原文** - 用于审计和深度恢复，不能被摘要替代
+2. **历史检查点** - 上下文压缩后的不可变快照
+3. **当前上下文** - 只保留当前有效信息
+
+### 检查点触发条件
+
+满足任一条件时创建新检查点：
+- 一个任务完成
+- 对话即将进行平台原生压缩
+- 切换问题域
+- Agent 即将交接给另一个 Agent
+- 累计消息或 token 超过配置阈值
+- 出现关键架构决策
+
+### 压缩硬规则
+
+- 先同步完整原文，再生成检查点
+- 检查点不得覆盖原文
+- 新检查点不得覆盖旧检查点
+- 当前上下文必须指向最新检查点
+- 摘要中的结论必须能回溯到原文或文件证据
+- 不能把计划写成已完成
+- 不能丢失失败尝试和未解决事项
+
+详细规范见 [checkpoint-protocol.md](references/checkpoint-protocol.md)。
+
+## 跨平台恢复
+
+### 核心原则
+
+- 项目目录是唯一可移植的长期真源
+- 平台会话 ID 只是恢复线索，不是长期上下文的唯一来源
+- 任何支持读取项目文件的 Agent 都应能恢复工作
+
+### 恢复流程
+
+1. 确认项目根目录
+2. 读取 .multi-agent-collaboration/PROTOCOL.md
+3. 读取 .multi-agent-collaboration/TEAM.yaml
+4. 确认自己的 Agent ID
+5. 读取自己的 ROLE.md、SYSTEM_PROMPT.md
+6. 读取 conversations/CURRENT_CONTEXT.md
+7. 读取最新 checkpoint
+8. 读取当前任务及上一次交接
+9. 检查实际文件、Git 状态和运行环境
+10. 汇报恢复结果后再继续工作
+
+### 漂移处理
+
+若项目文件状态与 checkpoint 不一致：
+- 以实际文件和真实系统状态为事实
+- 不直接覆盖
+- 记录漂移
+- 查阅后续原文和 Git 历史
+- 交由总控判断是否更新上下文
+
+详细规范见 [cross-platform-resume.md](references/cross-platform-resume.md)。
+
+## 绑定平台会话
+
+```bash
+python3 <skill-dir>/scripts/bind_session.py \
+  --project-root "<project-root>" \
+  --agent-id "A01-coordinator" \
+  --platform hermes \
+  --session-id "session-xxx" \
+  --model "<observed-model>" \
+  --provider "<observed-provider>" \
+  --profile default
+```
+
+`--model` 和 `--provider` 必须来自本次会话的显式输入或可信运行证据。Hermes 配置中的默认值
+只属于 declared policy，不能代替 actual；actual 不足或冲突时命令返回
+`RUNTIME_METADATA_REQUIRED`，且不会发布 Runtime Profile 或部分 Session 绑定。
+
+## 验证 Agent 结构
+
+```bash
+python3 <skill-dir>/scripts/validate_agents.py \
+  --project-root "<project-root>"
+```
+
+## 长期项目闭环命令
+
+Run 执行完成后严格按 `Bridge → PCP → index → validator → finalize` 沉淀和收口；不得跳步，
+也不得把 finalize 当作自动补齐前置资料的命令：
+
+```bash
+python3 <skill-dir>/scripts/archive_run_to_agents.py --run-dir "<run-dir>" --agent-map "<run-agent>=<long-term-agent>"
+python3 <skill-dir>/scripts/create_project_checkpoint.py --project-root "<project-root>" --run-id "<run-id>"
+python3 <skill-dir>/scripts/rebuild_index.py --project-root "<project-root>"
+python3 <skill-dir>/scripts/validate_agents.py --project-root "<project-root>"
+python3 <skill-dir>/scripts/finalize_project.py --project-root "<project-root>" --run-id "<run-id>"
+```
+
+长期 Agent 状态或存储版本变化时使用：
+
+```bash
+python3 <skill-dir>/scripts/manage_project_agents.py --help
+python3 <skill-dir>/scripts/migrate_project_agents.py --project-root "<project-root>" --dry-run
+```
+
+需要自动推进一个有界波次时，运行一次 coordinator tick。Hermes/Codex 远程 adapter 只有在
+显式配置外部 CLI/API bridge，且 `SESSION_MAP.json` 同时匹配 Agent、平台、真实 active session
+和精确 workspace 时，才允许尝试唤醒；退出码 0 只证明 bridge 命令成功，不证明远端任务已
+ACK、运行或完成。未配置、校验失败或投递失败时必须回退到真实 document invocation package，
+并报告 `fallback_document`，不能伪报已唤醒：
+
+```bash
+python3 <skill-dir>/scripts/coordinator.py --run-dir "<run-dir>" --once
+```
+
+协调器只自动派发 ready wave、验证冲突并报告 ACK/lease 超时；Review、QA、失败重试和 release 仍必须由真实 evidence/event 驱动，不能由协调器伪造。`--no-emit-events` 只能与 `--dry-run` 一起用于预览。
+
+详细边界见 [runtime-metadata.md](references/runtime-metadata.md)、[run-memory-bridge.md](references/run-memory-bridge.md)、[project-finalization.md](references/project-finalization.md)、[agent-lifecycle.md](references/agent-lifecycle.md) 和 [coordinator-runtime.md](references/coordinator-runtime.md)。
 
 ## 工作流
 
