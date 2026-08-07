@@ -1,0 +1,129 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://nousresearch.com/hermes/schemas/agent-profile.schema.json",
+  "title": "Persistent Agent Profile",
+  "description": "Long-lived declared Agent identity. Actual runtime observations belong in immutable Runtime Profile records, never here.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "doc_type",
+    "profile_version",
+    "agent_id",
+    "role",
+    "declared_model_policy",
+    "lifecycle",
+    "metadata"
+  ],
+  "properties": {
+    "schema_version": {"type": "string", "const": "1.0"},
+    "doc_type": {"type": "string", "const": "agent_profile"},
+    "profile_version": {"type": "integer", "minimum": 1},
+    "agent_id": {
+      "type": "string",
+      "pattern": "^A\\d{2}-[a-z0-9][a-z0-9-]*$"
+    },
+    "role": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role_id", "path", "sha256"],
+      "properties": {
+        "role_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^agents/A\\d{2}-[a-z0-9][a-z0-9-]*/ROLE\\.md$"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    },
+    "declared_model_policy": {
+      "description": "Declared/default dispatch policy only; it is not evidence of the model or provider actually used.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policy_kind", "preferred_models", "preferred_provider", "runtime_kind", "source"],
+      "properties": {
+        "policy_kind": {"type": "string", "const": "declared_default"},
+        "preferred_models": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1, "maxLength": 200},
+          "uniqueItems": true
+        },
+        "preferred_provider": {
+          "type": ["string", "null"],
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "runtime_kind": {
+          "type": ["string", "null"],
+          "pattern": "^[a-z0-9][a-z0-9_-]*$"
+        },
+        "source": {
+          "type": "string",
+          "enum": ["team_registry", "project_config", "user_declared", "migration"]
+        }
+      }
+    },
+    "lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "created_at", "updated_at", "paused_at", "retired_at", "retirement_reason"],
+      "properties": {
+        "status": {"type": "string", "enum": ["active", "paused", "retired"]},
+        "created_at": {"type": "string", "format": "date-time"},
+        "updated_at": {"type": "string", "format": "date-time"},
+        "paused_at": {"type": ["string", "null"], "format": "date-time"},
+        "retired_at": {"type": ["string", "null"], "format": "date-time"},
+        "retirement_reason": {"type": ["string", "null"], "minLength": 1, "maxLength": 500}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "active"}}},
+          "then": {
+            "properties": {
+              "paused_at": {"type": "null"},
+              "retired_at": {"type": "null"},
+              "retirement_reason": {"type": "null"}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"status": {"const": "paused"}}},
+          "then": {
+            "properties": {
+              "paused_at": {"type": "string", "format": "date-time"},
+              "retired_at": {"type": "null"},
+              "retirement_reason": {"type": "null"}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"status": {"const": "retired"}}},
+          "then": {
+            "properties": {
+              "retired_at": {"type": "string", "format": "date-time"},
+              "retirement_reason": {"type": "string", "minLength": 1, "maxLength": 500}
+            }
+          }
+        }
+      ]
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["display_name", "labels"],
+      "properties": {
+        "display_name": {"type": "string", "minLength": 1, "maxLength": 200},
+        "labels": {
+          "type": "array",
+          "items": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+          "uniqueItems": true
+        }
+      }
+    }
+  }
+}

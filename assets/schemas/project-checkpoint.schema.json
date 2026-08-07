@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nousresearch.com/hermes/multi-agent-collaboration/project-checkpoint.schema.json",
+  "title": "Immutable Project Checkpoint",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "doc_type", "project_id", "checkpoint_id", "created_at", "previous_checkpoint", "associated_runs", "agent_runtime_snapshots", "source_hashes", "git_snapshot_sha256", "content_sha256"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "doc_type": {"const": "project_checkpoint"},
+    "project_id": {"type": "string", "minLength": 1},
+    "checkpoint_id": {"type": "string", "pattern": "^PCP-[0-9]{4}$"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "previous_checkpoint": {"oneOf": [{"type": "null"}, {"type": "string", "pattern": "^PCP-[0-9]{4}$"}]},
+    "associated_runs": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^RUN-[A-Za-z0-9._-]+$"}},
+    "agent_runtime_snapshots": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/agentRuntimeSnapshot"}},
+    "source_hashes": {"type": "object", "minProperties": 3, "additionalProperties": {"type": "string", "pattern": "^[a-f0-9]{64}$"}},
+    "git_snapshot_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "content_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  },
+  "$defs": {
+    "hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "safeRef": {"type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"},
+    "actualValue": {
+      "type": "object", "additionalProperties": false, "required": ["status", "value"],
+      "properties": {"status": {"enum": ["known", "unknown", "not_collected", "conflict"]}, "value": {"type": ["string", "null"]}}
+    },
+    "hashedRef": {
+      "type": "object", "additionalProperties": false, "required": ["ref", "sha256"],
+      "properties": {"ref": {"$ref": "#/$defs/safeRef"}, "sha256": {"$ref": "#/$defs/hash"}}
+    },
+    "runtimeProfileSnapshot": {
+      "type": "object", "additionalProperties": false, "required": ["ref", "sha256", "actual_model", "actual_provider"],
+      "properties": {"ref": {"$ref": "#/$defs/safeRef"}, "sha256": {"$ref": "#/$defs/hash"}, "actual_model": {"$ref": "#/$defs/actualValue"}, "actual_provider": {"$ref": "#/$defs/actualValue"}}
+    },
+    "agentRuntimeSnapshot": {
+      "type": "object", "additionalProperties": false, "required": ["agent_id", "runtime_profiles", "activity_refs", "handoff_refs"],
+      "properties": {
+        "agent_id": {"type": "string", "pattern": "^A[0-9]{2}-[a-z0-9][a-z0-9-]*$"},
+        "runtime_profiles": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/runtimeProfileSnapshot"}},
+        "activity_refs": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/hashedRef"}},
+        "handoff_refs": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/hashedRef"}}
+      }
+    }
+  }
+}

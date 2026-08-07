@@ -1,0 +1,158 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nousresearch.com/hermes/multi-agent-collaboration/runtime-profile.schema.json",
+  "title": "Immutable Runtime Profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "doc_type", "runtime_profile_id", "agent_id", "capture_status", "capture_started_at", "captured_at", "model", "provider", "platform", "session", "profile", "workspace", "runtime_kind", "sources", "candidates", "declared_defaults", "config_fingerprint", "previous_profile", "record_hash"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "doc_type": {"const": "runtime_profile"},
+    "runtime_profile_id": {"type": "string", "pattern": "^RP-[0-9]{6}$"},
+    "agent_id": {"type": "string", "pattern": "^A[0-9]{2}-[a-z0-9][a-z0-9-]*$"},
+    "capture_status": {"$ref": "#/$defs/captureStatus"},
+    "capture_started_at": {"type": "string", "format": "date-time"},
+    "captured_at": {"type": "string", "format": "date-time"},
+    "model": {"$ref": "#/$defs/resolvedString"},
+    "provider": {"$ref": "#/$defs/resolvedSlug"},
+    "platform": {"$ref": "#/$defs/resolvedPlatform"},
+    "session": {"$ref": "#/$defs/resolvedSession"},
+    "profile": {"$ref": "#/$defs/resolvedProfile"},
+    "workspace": {"$ref": "#/$defs/resolvedWorkspace"},
+    "runtime_kind": {"$ref": "#/$defs/resolvedSlug"},
+    "sources": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/probeSource"}},
+    "candidates": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/candidate"}},
+    "declared_defaults": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/declaredDefault"}},
+    "config_fingerprint": {"$ref": "#/$defs/configFingerprint"},
+    "previous_profile": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/previousProfile"}]},
+    "record_hash": {"$ref": "#/$defs/hashObject"}
+  },
+  "$defs": {
+    "unknownReason": {
+      "enum": ["U001_NOT_EXPOSED", "U002_PROBE_UNAVAILABLE", "U003_PROBE_FAILED", "U004_INSUFFICIENT_EVIDENCE", "U005_CONSENT_OR_PERMISSION", "U006_REDACTED_FOR_SAFETY", "U007_NOT_APPLICABLE", "U008_LEGACY_NOT_COLLECTED"]
+    },
+    "confidence": {"enum": ["verified", "high", "medium", "low", "none"]},
+    "nonEmptyString": {"type": "string", "minLength": 1, "pattern": "^(?!unknown$)(?!\\s)(?!.*\\s$)[^\\x00-\\x1f\\x7f]+$"},
+    "slug": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"},
+    "sourceIds": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^SRC-[0-9]{3}$"}},
+    "candidateIds": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^CND-[0-9]{3}$"}},
+    "resolvedKnownBase": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "value", "confidence", "selected_source_ids", "conflict_candidate_ids", "unknown_reason_code", "resolution_note"],
+      "properties": {
+        "status": {"const": "known"}, "value": {},
+        "confidence": {"enum": ["verified", "high", "medium", "low"]},
+        "selected_source_ids": {"allOf": [{"$ref": "#/$defs/sourceIds"}, {"type": "array", "minItems": 1}]},
+        "conflict_candidate_ids": {"allOf": [{"$ref": "#/$defs/candidateIds"}, {"type": "array"}]},
+        "unknown_reason_code": {"type": "null"},
+        "resolution_note": {"type": "string", "minLength": 1}
+      }
+    },
+    "resolvedUnknown": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "value", "confidence", "selected_source_ids", "conflict_candidate_ids", "unknown_reason_code", "resolution_note"],
+      "properties": {
+        "status": {"enum": ["unknown", "not_collected"]}, "value": {"type": "null"}, "confidence": {"const": "none"},
+        "selected_source_ids": {"type": "array", "maxItems": 0}, "conflict_candidate_ids": {"type": "array", "maxItems": 0},
+        "unknown_reason_code": {"$ref": "#/$defs/unknownReason"}, "resolution_note": {"type": "string", "minLength": 1}
+      }
+    },
+    "resolvedConflict": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "value", "confidence", "selected_source_ids", "conflict_candidate_ids", "unknown_reason_code", "resolution_note"],
+      "properties": {
+        "status": {"const": "conflict"}, "value": {"type": "null"}, "confidence": {"const": "none"},
+        "selected_source_ids": {"type": "array", "maxItems": 0},
+        "conflict_candidate_ids": {"allOf": [{"$ref": "#/$defs/candidateIds"}, {"type": "array", "minItems": 2}]},
+        "unknown_reason_code": {"type": "null"}, "resolution_note": {"type": "string", "minLength": 1}
+      }
+    },
+    "resolvedString": {"oneOf": [
+      {"allOf": [{"$ref": "#/$defs/resolvedKnownBase"}, {"type": "object", "properties": {"value": {"$ref": "#/$defs/nonEmptyString"}}}]},
+      {"$ref": "#/$defs/resolvedUnknown"}, {"$ref": "#/$defs/resolvedConflict"}
+    ]},
+    "resolvedSlug": {"oneOf": [
+      {"allOf": [{"$ref": "#/$defs/resolvedKnownBase"}, {"type": "object", "properties": {"value": {"$ref": "#/$defs/slug"}}}]},
+      {"$ref": "#/$defs/resolvedUnknown"}, {"$ref": "#/$defs/resolvedConflict"}
+    ]},
+    "resolvedPlatform": {"oneOf": [
+      {"allOf": [{"$ref": "#/$defs/resolvedKnownBase"}, {"type": "object", "properties": {"value": {"enum": ["hermes", "claude-code", "codex", "document", "other"]}}}]},
+      {"$ref": "#/$defs/resolvedUnknown"}, {"$ref": "#/$defs/resolvedConflict"}
+    ]},
+    "resolvedSession": {"oneOf": [
+      {"allOf": [{"$ref": "#/$defs/resolvedKnownBase"}, {"type": "object", "properties": {"value": {"type": "string", "pattern": "^[A-Za-z0-9._:@/-]{1,256}$"}}}]},
+      {"$ref": "#/$defs/resolvedUnknown"}, {"$ref": "#/$defs/resolvedConflict"}
+    ]},
+    "resolvedProfile": {"oneOf": [
+      {"allOf": [{"$ref": "#/$defs/resolvedKnownBase"}, {"type": "object", "properties": {"value": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$"}}}]},
+      {"$ref": "#/$defs/resolvedUnknown"}, {"$ref": "#/$defs/resolvedConflict"}
+    ]},
+    "resolvedWorkspace": {"oneOf": [
+      {"allOf": [{"$ref": "#/$defs/resolvedKnownBase"}, {"type": "object", "properties": {"value": {"type": "string", "pattern": "^/(?!.*(?:[?#]|/\\.\\.?/))[^\\x00-\\x1f\\x7f]+$"}}}]},
+      {"$ref": "#/$defs/resolvedUnknown"}, {"$ref": "#/$defs/resolvedConflict"}
+    ]},
+    "captureStatus": {"oneOf": [
+      {"type": "object", "additionalProperties": false, "required": ["code", "name"], "properties": {"code": {"const": "S000"}, "name": {"const": "complete"}}},
+      {"type": "object", "additionalProperties": false, "required": ["code", "name"], "properties": {"code": {"const": "S001"}, "name": {"const": "partial"}}},
+      {"type": "object", "additionalProperties": false, "required": ["code", "name"], "properties": {"code": {"const": "S002"}, "name": {"const": "conflicted"}}},
+      {"type": "object", "additionalProperties": false, "required": ["code", "name"], "properties": {"code": {"const": "S003"}, "name": {"const": "unresolved"}}},
+      {"type": "object", "additionalProperties": false, "required": ["code", "name"], "properties": {"code": {"const": "S004"}, "name": {"const": "legacy_imported"}}}
+    ]},
+    "probeSource": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source_id", "source_type", "claim_kind", "locator", "observed_at", "freshness", "trust", "probe_status", "evidence_hash", "error_code"],
+      "properties": {
+        "source_id": {"type": "string", "pattern": "^SRC-[0-9]{3}$"},
+        "source_type": {"enum": ["platform_api", "signed_session_metadata", "runtime_context", "external_bridge", "session_map", "registry", "cli_argument", "project_config", "legacy_document", "manual_input", "document_invocation"]},
+        "claim_kind": {"enum": ["observed_actual", "declared_default", "derived", "legacy_import"]},
+        "locator": {"type": "string", "minLength": 1, "maxLength": 256}, "observed_at": {"type": "string", "format": "date-time"},
+        "freshness": {"enum": ["live", "session", "cached", "historical"]},
+        "trust": {"enum": ["authoritative", "strong", "supporting", "weak"]},
+        "probe_status": {"enum": ["success", "empty", "unsupported", "failed", "skipped"]},
+        "evidence_hash": {"oneOf": [{"type": "null"}, {"type": "string", "pattern": "^[a-f0-9]{64}$"}]},
+        "error_code": {"oneOf": [{"type": "null"}, {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{1,63}$"}]}
+      }
+    },
+    "candidate": {
+      "type": "object", "additionalProperties": false,
+      "required": ["candidate_id", "field", "normalized_value", "source_ids", "claim_kind", "confidence", "selected"],
+      "properties": {
+        "candidate_id": {"type": "string", "pattern": "^CND-[0-9]{3}$"},
+        "field": {"enum": ["model", "provider", "platform", "session", "profile", "workspace", "runtime_kind"]},
+        "normalized_value": {"$ref": "#/$defs/nonEmptyString"},
+        "source_ids": {"allOf": [{"$ref": "#/$defs/sourceIds"}, {"type": "array", "minItems": 1}]},
+        "claim_kind": {"enum": ["observed_actual", "declared_default", "derived", "legacy_import"]},
+        "confidence": {"enum": ["verified", "high", "medium", "low"]}, "selected": {"type": "boolean"}
+      }
+    },
+    "declaredDefault": {
+      "type": "object", "additionalProperties": false, "required": ["field", "value", "source_ids"],
+      "properties": {
+        "field": {"enum": ["model", "provider", "platform", "profile", "runtime_kind"]},
+        "value": {"$ref": "#/$defs/nonEmptyString"},
+        "source_ids": {"allOf": [{"$ref": "#/$defs/sourceIds"}, {"type": "array", "minItems": 1}]}
+      }
+    },
+    "configFingerprint": {
+      "oneOf": [
+        {"type": "object", "additionalProperties": false, "required": ["status", "algorithm", "canonicalization", "scope_version", "included_fields", "value", "unknown_reason_code"], "properties": {
+          "status": {"const": "known"}, "algorithm": {"const": "sha256"}, "canonicalization": {"const": "jcs-rfc8785"}, "scope_version": {"const": "runtime-config-v1"},
+          "included_fields": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]*$"}},
+          "value": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "unknown_reason_code": {"type": "null"}
+        }},
+        {"type": "object", "additionalProperties": false, "required": ["status", "algorithm", "canonicalization", "scope_version", "included_fields", "value", "unknown_reason_code"], "properties": {
+          "status": {"const": "unknown"}, "algorithm": {"const": "sha256"}, "canonicalization": {"const": "jcs-rfc8785"}, "scope_version": {"const": "runtime-config-v1"},
+          "included_fields": {"type": "array", "maxItems": 0}, "value": {"type": "null"}, "unknown_reason_code": {"$ref": "#/$defs/unknownReason"}
+        }}
+      ]
+    },
+    "previousProfile": {
+      "type": "object", "additionalProperties": false, "required": ["runtime_profile_id", "record_hash"],
+      "properties": {"runtime_profile_id": {"type": "string", "pattern": "^RP-[0-9]{6}$"}, "record_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}
+    },
+    "hashObject": {
+      "type": "object", "additionalProperties": false, "required": ["algorithm", "canonicalization", "value"],
+      "properties": {"algorithm": {"const": "sha256"}, "canonicalization": {"const": "jcs-rfc8785"}, "value": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}
+    }
+  }
+}

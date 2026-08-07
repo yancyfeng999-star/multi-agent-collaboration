@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import argparse
-import fcntl
+from project_memory_lib import exclusive_lock
 import json
 import os
 import re
@@ -176,8 +176,8 @@ def main() -> int:
 
     bus_root = project_root / ".multi-agent-collaboration"
     bus_root.mkdir(parents=True, exist_ok=True)
-    init_lock = (bus_root / ".init.lock").open("a+", encoding="utf-8")
-    fcntl.flock(init_lock.fileno(), fcntl.LOCK_EX)
+    init_lock = exclusive_lock(bus_root / ".init.lock")
+    init_lock.__enter__()
     run_dir = bus_root / "runs" / run_id
     if run_dir.exists():
         raise SystemExit(f"Run already exists: {run_dir}")
@@ -459,8 +459,7 @@ def main() -> int:
         ),
     )
     atomic_write(bus_root / "current-run", f"{run_id}\n")
-    fcntl.flock(init_lock.fileno(), fcntl.LOCK_UN)
-    init_lock.close()
+    init_lock.__exit__(None, None, None)
     print(run_dir)
     return 0
 

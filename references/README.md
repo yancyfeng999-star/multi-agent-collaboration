@@ -12,6 +12,14 @@ governance 和任务类型选择必要文档，不需要一次加载全部内容
 | [adapters.md](adapters.md) | 选择 transport | Codex 原生、文档总线和 hybrid 双写 |
 | [codex-native-protocol.md](codex-native-protocol.md) | 使用 Codex 任务或子代理 | 原生工具发现、消息、等待、handoff 和恢复 |
 | [document-subagent-protocol.md](document-subagent-protocol.md) | 通用智能体需要受管子代理 | 父子权限、binding、结果审查和关闭 |
+| [storage-protocol.md](storage-protocol.md) | 初始化项目 Agent | 目录结构、文件职责、写入所有权、索引策略 |
+| [checkpoint-protocol.md](checkpoint-protocol.md) | 上下文压缩 | 三层上下文模型、检查点格式、触发条件、压缩规则 |
+| [cross-platform-resume.md](cross-platform-resume.md) | 跨平台恢复 | 恢复流程、漂移处理、平台适配器、最小恢复提示词 |
+| [run-memory-bridge.md](run-memory-bridge.md) | Run 完成后沉淀长期记忆 | Run→Agent 只读桥接、哈希、幂等与边界 |
+| [project-finalization.md](project-finalization.md) | 阶段 checkpoint 或项目收口 | 项目级 checkpoint、最终报告与审计清单 |
+| [agent-lifecycle.md](agent-lifecycle.md) | 长期角色变化或存储升级 | 添加、暂停、退役、修复、迁移和回滚 |
+| [coordinator-runtime.md](coordinator-runtime.md) | 自动推进 ready wave | 有界 tick、唤醒适配、超时建议与安全回退 |
+| [runtime-metadata.md](runtime-metadata.md) | 绑定会话或记录运行资料 | actual/declared 证据边界、unknown/conflict、usage、Secret 与收口顺序 |
 
 维护约定：
 

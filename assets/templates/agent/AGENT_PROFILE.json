@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.0",
+  "doc_type": "agent_profile",
+  "profile_version": 1,
+  "agent_id": "A01-coordinator",
+  "role": {
+    "role_id": "coordinator",
+    "path": "agents/A01-coordinator/ROLE.md",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "declared_model_policy": {
+    "policy_kind": "declared_default",
+    "preferred_models": [],
+    "preferred_provider": null,
+    "runtime_kind": null,
+    "source": "team_registry"
+  },
+  "lifecycle": {
+    "status": "active",
+    "created_at": "1970-01-01T00:00:00Z",
+    "updated_at": "1970-01-01T00:00:00Z",
+    "paused_at": null,
+    "retired_at": null,
+    "retirement_reason": null
+  },
+  "metadata": {
+    "display_name": "Coordinator",
+    "labels": ["coordinator"]
+  }
+}

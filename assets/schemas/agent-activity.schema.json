@@ -1,0 +1,205 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://nousresearch.com/hermes/schemas/agent-activity.schema.json",
+  "title": "Agent Activity Ledger Record",
+  "description": "Immutable, hash-chained activity record for one Run/Task/Attempt/Agent partition.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "record_kind", "activity_id", "sequence", "recorded_at",
+    "run_id", "task_id", "attempt_id", "agent_id", "session_id", "parent_agent_id",
+    "runtime_profile", "status", "tool_summary", "verification", "artifacts",
+    "evidence_refs", "usage", "source", "idempotency_key",
+    "supersedes_record_sha256", "previous_record_sha256", "record_sha256"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "record_kind": {
+      "type": "string",
+      "enum": ["attempt_started", "status_transition", "tool_summary", "verification", "artifact_evidence", "usage_reported", "attempt_finished", "correction"]
+    },
+    "activity_id": {"$ref": "#/definitions/opaqueId"},
+    "sequence": {"type": "integer", "minimum": 1},
+    "recorded_at": {"$ref": "#/definitions/dateTime"},
+    "run_id": {"type": "string", "pattern": "^RUN-[A-Za-z0-9][A-Za-z0-9._-]*$"},
+    "task_id": {"type": "string", "pattern": "^TASK-[A-Za-z0-9][A-Za-z0-9._-]*$"},
+    "attempt_id": {"type": "string", "pattern": "^ATTEMPT-[A-Za-z0-9][A-Za-z0-9._-]*$"},
+    "agent_id": {"$ref": "#/definitions/opaqueId"},
+    "session_id": {"anyOf": [{"$ref": "#/definitions/sessionId"}, {"type": "null"}]},
+    "parent_agent_id": {"anyOf": [{"$ref": "#/definitions/opaqueId"}, {"type": "null"}]},
+    "runtime_profile": {"$ref": "#/definitions/runtimeProfile"},
+    "status": {"$ref": "#/definitions/status"},
+    "tool_summary": {"anyOf": [{"$ref": "#/definitions/toolSummary"}, {"type": "null"}]},
+    "verification": {"anyOf": [{"$ref": "#/definitions/verification"}, {"type": "null"}]},
+    "artifacts": {"type": "array", "items": {"$ref": "#/definitions/artifact"}},
+    "evidence_refs": {"type": "array", "items": {"$ref": "#/definitions/evidence"}},
+    "usage": {"$ref": "#/definitions/usage"},
+    "source": {"$ref": "#/definitions/source"},
+    "idempotency_key": {"type": "string", "minLength": 1, "maxLength": 1024},
+    "supersedes_record_sha256": {"$ref": "#/definitions/nullableHash"},
+    "previous_record_sha256": {"$ref": "#/definitions/nullableHash"},
+    "record_sha256": {"$ref": "#/definitions/hash"}
+  },
+  "definitions": {
+    "hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "nullableHash": {"anyOf": [{"$ref": "#/definitions/hash"}, {"type": "null"}]},
+    "dateTime": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$"
+    },
+    "nullableDateTime": {"anyOf": [{"$ref": "#/definitions/dateTime"}, {"type": "null"}]},
+    "opaqueId": {"type": "string", "pattern": "^[A-Za-z0-9._:@/-]{1,256}$"},
+    "sessionId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._:@/-]{1,256}$",
+      "not": {"pattern": "(?i)(bearer|token|authorization|cookie|password|secret)"}
+    },
+    "safeRef": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*[?#])(?!.*://).+$"
+    },
+    "nullableString": {"type": ["string", "null"]},
+    "nullableInteger": {"type": ["integer", "null"]},
+    "nullableNonNegativeInteger": {"type": ["integer", "null"], "minimum": 0},
+    "runtimeProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runtime", "provider", "model", "profile_name", "node_id", "host_fingerprint", "native_binding_ref", "native_binding_sha256"],
+      "properties": {
+        "runtime": {"type": "string", "enum": ["codex_thread", "codex_subagent", "document", "document_subagent"]},
+        "provider": {"$ref": "#/definitions/nullableString"},
+        "model": {"$ref": "#/definitions/nullableString"},
+        "profile_name": {"$ref": "#/definitions/nullableString"},
+        "node_id": {"$ref": "#/definitions/nullableString"},
+        "host_fingerprint": {"$ref": "#/definitions/nullableString"},
+        "native_binding_ref": {"$ref": "#/definitions/safeRef"},
+        "native_binding_sha256": {"$ref": "#/definitions/hash"}
+      }
+    },
+    "status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["attempt_status", "task_status_observed", "outcome", "reason_code", "summary"],
+      "properties": {
+        "attempt_status": {"type": "string", "enum": ["created", "dispatched", "acknowledged", "running", "handoff_ready", "reviewing", "qa_running", "waiting_user_approval", "waiting_external", "completed", "failed", "blocked", "cancelled", "superseded", "expired", "dead_letter"]},
+        "task_status_observed": {"type": ["string", "null"], "enum": ["ready", "dispatched", "acknowledged", "running", "blocked", "waiting_external", "waiting_user_approval", "handoff_ready", "reviewing", "changes_requested", "qa_running", "qa_failed", "qa_passed", "release_ready", "completed", "failed", "cancelled", "superseded", "expired", "dead_letter", null]},
+        "outcome": {"type": ["string", "null"], "enum": ["success", "failure", "partial", "cancelled", "superseded", "expired", "dead_letter", null]},
+        "reason_code": {"$ref": "#/definitions/nullableString"},
+        "summary": {"type": "string", "maxLength": 2000}
+      }
+    },
+    "toolSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tool_family", "tool_name", "operation", "call_count", "success_count", "failure_count", "duration_ms", "exit_code", "input_summary", "output_summary"],
+      "properties": {
+        "tool_family": {"type": "string", "minLength": 1},
+        "tool_name": {"type": "string", "minLength": 1},
+        "operation": {"type": "string", "minLength": 1},
+        "call_count": {"type": "integer", "minimum": 0},
+        "success_count": {"type": "integer", "minimum": 0},
+        "failure_count": {"type": "integer", "minimum": 0},
+        "duration_ms": {"$ref": "#/definitions/nullableNonNegativeInteger"},
+        "exit_code": {"$ref": "#/definitions/nullableInteger"},
+        "input_summary": {"type": "string", "maxLength": 2000},
+        "output_summary": {"type": "string", "maxLength": 2000}
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["verification_id", "kind", "command_redacted", "started_at", "finished_at", "exit_code", "status", "evidence_ref", "evidence_sha256"],
+      "properties": {
+        "verification_id": {"$ref": "#/definitions/opaqueId"},
+        "kind": {"type": "string", "minLength": 1},
+        "command_redacted": {"type": "string", "maxLength": 2000},
+        "started_at": {"$ref": "#/definitions/nullableDateTime"},
+        "finished_at": {"$ref": "#/definitions/nullableDateTime"},
+        "exit_code": {"$ref": "#/definitions/nullableInteger"},
+        "status": {"type": "string", "enum": ["passed", "failed", "not_run", "inconclusive"]},
+        "evidence_ref": {"$ref": "#/definitions/safeRef"},
+        "evidence_sha256": {"$ref": "#/definitions/hash"}
+      },
+      "allOf": [
+        {"if": {"properties": {"status": {"const": "not_run"}}, "required": ["status"]}, "then": {"properties": {"exit_code": {"type": "null"}}}}
+      ]
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_id", "kind", "ref", "sha256", "media_type", "size_bytes"],
+      "properties": {
+        "artifact_id": {"$ref": "#/definitions/opaqueId"},
+        "kind": {"type": "string", "minLength": 1},
+        "ref": {"$ref": "#/definitions/safeRef"},
+        "sha256": {"$ref": "#/definitions/hash"},
+        "media_type": {"type": "string", "minLength": 1},
+        "size_bytes": {"type": "integer", "minimum": 0}
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidence_id", "kind", "ref", "sha256", "status"],
+      "properties": {
+        "evidence_id": {"$ref": "#/definitions/opaqueId"},
+        "kind": {"type": "string", "minLength": 1},
+        "ref": {"$ref": "#/definitions/safeRef"},
+        "sha256": {"$ref": "#/definitions/hash"},
+        "status": {"type": "string", "enum": ["passed", "failed", "not_run", "inconclusive"]}
+      }
+    },
+    "usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input_tokens", "output_tokens", "cached_input_tokens", "reasoning_tokens", "total_tokens", "cost_minor_units", "currency", "usage_source", "source_ref", "source_sha256", "reported_at"],
+      "properties": {
+        "input_tokens": {"$ref": "#/definitions/nullableNonNegativeInteger"},
+        "output_tokens": {"$ref": "#/definitions/nullableNonNegativeInteger"},
+        "cached_input_tokens": {"$ref": "#/definitions/nullableNonNegativeInteger"},
+        "reasoning_tokens": {"$ref": "#/definitions/nullableNonNegativeInteger"},
+        "total_tokens": {"$ref": "#/definitions/nullableNonNegativeInteger"},
+        "cost_minor_units": {"$ref": "#/definitions/nullableNonNegativeInteger"},
+        "currency": {"type": ["string", "null"], "pattern": "^[A-Z]{3}$"},
+        "usage_source": {"type": "string", "enum": ["provider_response", "runtime_meter", "billing_export", "none_required", "unavailable"]},
+        "source_ref": {"anyOf": [{"$ref": "#/definitions/safeRef"}, {"type": "null"}]},
+        "source_sha256": {"$ref": "#/definitions/nullableHash"},
+        "reported_at": {"$ref": "#/definitions/nullableDateTime"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"usage_source": {"enum": ["provider_response", "runtime_meter", "billing_export"]}}, "required": ["usage_source"]},
+          "then": {"properties": {"source_ref": {"$ref": "#/definitions/safeRef"}, "source_sha256": {"$ref": "#/definitions/hash"}, "reported_at": {"$ref": "#/definitions/dateTime"}}}
+        },
+        {
+          "if": {"properties": {"usage_source": {"enum": ["none_required", "unavailable"]}}, "required": ["usage_source"]},
+          "then": {"properties": {"input_tokens": {"type": "null"}, "output_tokens": {"type": "null"}, "cached_input_tokens": {"type": "null"}, "reasoning_tokens": {"type": "null"}, "total_tokens": {"type": "null"}, "cost_minor_units": {"type": "null"}, "currency": {"type": "null"}}}
+        },
+        {
+          "if": {"properties": {"cost_minor_units": {"type": "null"}}, "required": ["cost_minor_units"]},
+          "then": {"properties": {"currency": {"type": "null"}}}
+        },
+        {
+          "if": {"not": {"properties": {"cost_minor_units": {"type": "null"}}, "required": ["cost_minor_units"]}},
+          "then": {"properties": {"currency": {"type": "string", "pattern": "^[A-Z]{3}$"}}}
+        }
+      ]
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_kind", "source_ref", "source_sha256", "source_event_id", "correlation_id", "causation_id"],
+      "properties": {
+        "source_kind": {"type": "string", "enum": ["event", "ack", "lease", "result", "evidence", "artifact", "native_operation", "usage_receipt", "bridge_manifest"]},
+        "source_ref": {"$ref": "#/definitions/safeRef"},
+        "source_sha256": {"$ref": "#/definitions/hash"},
+        "source_event_id": {"anyOf": [{"$ref": "#/definitions/opaqueId"}, {"type": "null"}]},
+        "correlation_id": {"type": "string", "minLength": 1, "maxLength": 1024},
+        "causation_id": {"anyOf": [{"$ref": "#/definitions/opaqueId"}, {"type": "null"}]}
+      }
+    }
+  }
+}

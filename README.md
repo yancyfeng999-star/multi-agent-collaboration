@@ -7,7 +7,7 @@
 | 中文名称 | 多智能体协同 |
 | English Name | Multi-Agent Collaboration |
 | Skill ID | `multi-agent-collaboration` |
-| Skill Version | `1.0.0` |
+| Skill Version | `1.2.0` |
 | Protocol Version | `3` |
 | GitHub | [yancyfeng999-star/multi-agent-collaboration](https://github.com/yancyfeng999-star/multi-agent-collaboration) |
 | License | [MIT](LICENSE) |
@@ -24,8 +24,9 @@
 | [assets/README.md](assets/README.md) | 协议模板及字段用途 |
 | [tests/README.md](tests/README.md) | 测试范围和运行方法 |
 | [CHANGELOG.md](CHANGELOG.md) | 协议及用户可见行为变更 |
+| [docs/MERGED_STRUCTURE.md](docs/MERGED_STRUCTURE.md) | v1.2.0 两层架构、运行资料与收口数据流 |
 
-当前 Skill 正式版本为 `1.0.0`，唯一版本权威源是 [VERSION](VERSION)；当前可写协议为
+当前 Skill 正式版本为 `1.2.0`，唯一版本权威源是 [VERSION](VERSION)；当前可写协议为
 v3。Skill 版本与协议版本独立递增。`SKILL.md` 是规范入口，根 README 用于介绍和导航；
 两者冲突时应先修正文档与实现，不以 README 放宽协议门禁。
 
@@ -51,6 +52,7 @@ v3。Skill 版本与协议版本独立递增。`SKILL.md` 是规范入口，根 
 - 对生产、数据库、资金、权限、密钥、删除和发布操作设置人工门禁。
 - 在总控中断后，通过文档和事件状态恢复协同现场。
 - 把进入同一交付物的任务绑定到同一项目版本合同和 Release Train。
+- 自动探测并不可变记录实际运行资料，明确区分 actual observation 与 declared default。
 
 ### 最小必要智能体
 
@@ -111,6 +113,28 @@ RC 编号和版本重评；普通 Owner、Reviewer 和 QA 保持原职责。只�
 7. 根据事件状态机调度返工、下游任务、发布整备或人工处理。
 8. 验证完成条件，生成总结并将运行记录只读归档。
 
+### 运行资料与项目收口
+
+运行资料采用“自动探测优先、缺失显式补充”：先使用获准运行上下文、平台/桥接证据、已验证
+会话映射和固定环境 allowlist，再对缺字段请求 CLI/人工输入。实际观测值（actual）与 Registry、
+项目配置或默认模型声明（declared）分开保存；declared 不能证明本次会话实际使用，也不能覆盖
+actual。无法确认、历史未采集、可信来源冲突分别记录为 `unknown`、`not_collected`、`conflict`，
+不得伪造值或静默选择冲突候选。
+
+Token 和费用只记录 provider response、runtime meter 或 billing export 的真实回执；Skill 不按
+文本长度、模型价目或持续时间估算。无回执时保持 `null`/`unavailable`。运行资料禁止保存全量
+环境、prompt、原始命令/输出、密钥、token、Cookie、Authorization、私钥和带 query 的 URL；
+敏感输入、输出或字段命中即 fail-closed，错误消息不回显秘密。
+
+长期项目收口顺序固定为：`Bridge → PCP → index → validator → finalize`。Bridge 把完成 Run
+哈希绑定到长期 Agent；PCP 创建项目 checkpoint；index 确定性重建；validator 校验结构、引用、
+hash 和门禁；最后 finalize 才生成最终报告与审计包。
+
+Hermes/Codex 远程 adapter 不是自动会话发现器。只有显式配置外部 bridge 且会话映射匹配
+Agent、平台、真实 active session 和精确 workspace 时才尝试唤醒；bridge 退出 0 不等于远端
+ACK、运行或完成。缺少真实 bridge/session 或投递失败时只写 document invocation package 并
+报告 fallback，不宣称远端已唤醒。
+
 ### 使用方式
 
 安装到 Codex：
@@ -168,6 +192,7 @@ python3 <skill-dir>/scripts/validate_run.py \
 - 不允许子代理获得超过父智能体的权限。
 - 不以聊天陈述代替文件、Git、测试或外部系统证据。
 - 不因使用本 Skill 自动获得生产、发布、删除或其他高风险操作权限。
+- 不把 declared 默认值写成 actual，不估算 Token/费用，不采集或持久化 secret。
 
 ## English Description
 
@@ -194,6 +219,8 @@ and human approval gates.
   release operations.
 - Restores coordination state from documents and events after an interruption.
 - Binds all tasks entering one deliverable to the same project version contract and release train.
+- Captures immutable Runtime Profiles and Task Attempt Activity while separating observed actual
+  runtime facts from declared defaults.
 
 ### Minimum Necessary Agents
 
@@ -264,6 +291,26 @@ project version.
    state machine.
 8. Validate completion, generate a summary, and archive the run as read-only history.
 
+### Runtime Metadata and Project Closure
+
+Runtime capture prefers approved automatic evidence and requests explicit values only when actual
+model/provider data is missing or conflicted. Project or Hermes defaults are declared policy, not
+proof of what a session used. Unknown, legacy-not-collected, and conflicting facts remain explicit;
+the Skill does not synthesize placeholders or silently choose a conflict candidate.
+
+Token counts and cost are persisted only from a provider response, runtime meter, or billing export.
+Without a real receipt they remain `null`/`unavailable`. Full environment snapshots, prompts, raw
+credentials, authorization headers, cookies, private keys, and secret-shaped values are rejected.
+
+Long-term closure follows `Bridge → PCP → index → validator → finalize`. Each stage validates paths,
+ownership, references, and SHA-256 bindings before the next stage. A Session Map publication failure
+rolls back the corresponding Runtime Profile transaction, so retries do not leave orphan profiles.
+
+Hermes/Codex adapters require an explicitly configured external bridge plus a matching stable agent,
+platform, active session, and exact workspace. Bridge exit code zero proves delivery only—not ACK,
+execution, or completion. Unsupported or failed delivery falls back to a real document invocation
+package without claiming that the remote agent was awakened.
+
 ### Usage
 
 Install for Codex:
@@ -294,6 +341,8 @@ first, then wait for confirmation before execution.
 - A subagent may never receive broader permissions than its parent.
 - Chat claims do not replace file, Git, test, or external-system evidence.
 - This Skill does not grant production, release, deletion, or other high-risk authority.
+- Declared defaults must not be persisted as observed actual runtime facts; token/cost estimates and
+  secrets are prohibited.
 
 ## 目录结构 | Repository Layout
 
@@ -302,10 +351,11 @@ multi-agent-collaboration/
 ├── SKILL.md                 # Codex 主协议 / normative skill entry
 ├── README.md                # 中英文介绍与导航 / bilingual overview
 ├── CHANGELOG.md             # 协议变更 / protocol changes
+├── docs/                    # 当前架构说明 / current architecture
 ├── agents/
 │   └── openai.yaml          # Skill 展示和默认提示
 ├── references/              # 规范性详细协议
-├── assets/                  # 协议文档模板
+├── assets/                  # 协议模板与 JSON Schema
 ├── scripts/                 # 初始化、管理、事件和校验实现
 └── tests/                   # 协议 v3 回归测试
 ```
@@ -318,6 +368,83 @@ multi-agent-collaboration/
 - 可执行约束必须在 `scripts/` 中 fail-closed，并在 `tests/` 中覆盖。
 - 功能增长不自动增加 Agent；先合并不冲突能力，再说明无法合并的边界。
 
+
+### Agent 身份持久化
+
+多智能体项目需要长期稳定的 Agent 身份，而不是每次运行都重新定义。每个长期 Agent 必须有：
+
+- **ROLE.md** - 岗位章程，保存稳定岗位信息
+- **SYSTEM_PROMPT.md** - 恢复提示词，用于新平台恢复 Agent 身份
+- **conversations/** - 对话归档和检查点
+- **SESSION_MAP.json** - 平台会话映射
+
+初始化 Agent 结构：
+
+```bash
+python3 scripts/init_project_agents.py \
+  --project-root "<project-root>" \
+  --project-id "<project-id>" \
+  --project-name "<project-name>" \
+  --agents "A01-coordinator,A02-frontend,A03-backend" \
+  --governance standard \
+  --user-confirmed
+```
+
+### 对话归档与检查点
+
+三层上下文模型：
+
+1. **完整原文** - 用于审计和深度恢复，不能被摘要替代
+2. **历史检查点** - 上下文压缩后的不可变快照
+3. **当前上下文** - 只保留当前有效信息
+
+检查点触发条件：
+- 一个任务完成
+- 对话即将进行平台原生压缩
+- 切换问题域
+- Agent 即将交接给另一个 Agent
+- 累计消息或 token 超过配置阈值
+
+### 跨平台恢复
+
+核心原则：
+- 项目目录是唯一可移植的长期真源
+- 平台会话 ID 只是恢复线索，不是长期上下文的唯一来源
+- 任何支持读取项目文件的 Agent 都应能恢复工作
+
+恢复流程：
+1. 确认项目根目录
+2. 读取协议和团队清单
+3. 确认自己的 Agent ID
+4. 读取角色和恢复提示词
+5. 读取当前上下文和最新检查点
+6. 检查实际文件状态
+7. 汇报恢复结果
+
+### 绑定平台会话
+
+```bash
+python3 scripts/bind_session.py \
+  --project-root "<project-root>" \
+  --agent-id "A01-coordinator" \
+  --platform hermes \
+  --session-id "session-xxx" \
+  --model "<observed-model>" \
+  --provider "<observed-provider>" \
+  --profile default
+```
+
+模型和 Provider 必须是本次会话的实际运行证据，不能使用项目或 Hermes 默认配置冒充 actual。
+证据缺失或冲突时，绑定会 fail-closed，并保持 Session Map 与 Runtime Ledger 原样不变。
+
+### 验证 Agent 结构
+
+```bash
+python3 scripts/validate_agents.py \
+  --project-root "<project-root>"
+```
+
+
 ## 进一步文档 | Further Documentation
 
 - [Skill 主协议 | Main Skill Protocol](SKILL.md)
@@ -327,6 +454,7 @@ multi-agent-collaboration/
 - [访谈与任务规划 | Interview and Planning](references/interview-and-planning.md)
 - [治理模式与门禁 | Governance Modes and Gates](references/modes-and-gates.md)
 - [集中式版本治理 | Centralized Version Governance](references/version-governance.md)
+- [运行资料采集 | Runtime Metadata](references/runtime-metadata.md)
 - [文档子代理协议 | Document Subagent Protocol](references/document-subagent-protocol.md)
 - [脚本说明 | Scripts Guide](scripts/README.md)
 - [模板说明 | Assets Guide](assets/README.md)

@@ -1,0 +1,36 @@
+{
+  "schema_version": "1.0",
+  "doc_type": "team",
+  "project_id": "{project_id}",
+  "project_name": "{project_name}",
+  "project_root": "{project_root}",
+  "created_at": "{created_at}",
+  "updated_at": "{updated_at}",
+  "governance_mode": "{governance_mode}",
+  "max_parallel": "{max_parallel_integer}",
+  "declared_model_policy": {
+    "policy_kind": "declared_default",
+    "preferred_models": [],
+    "preferred_provider": null,
+    "runtime_kind": null,
+    "source": "team_registry"
+  },
+  "agents": [
+    {
+      "agent_id": "A01-coordinator",
+      "role_name": "coordinator",
+      "domain": "project orchestration",
+      "status": "active",
+      "role_file": "agents/A01-coordinator/ROLE.md",
+      "system_prompt_file": "agents/A01-coordinator/SYSTEM_PROMPT.md",
+      "agent_profile_file": "agents/A01-coordinator/AGENT_PROFILE.json"
+    }
+  ],
+  "collaboration_rules": [
+    "Coordinator owns task assignment and integration",
+    "Every task has exactly one Owner",
+    "Parallel tasks require isolated write scopes and runtime resources",
+    "Handoffs contain exact commands, results, evidence, risks, and unresolved work",
+    "Project completion requires Coordinator verification"
+  ]
+}

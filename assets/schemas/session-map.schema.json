@@ -1,0 +1,447 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Session Map Schema",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "agent_id",
+    "active",
+    "history"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": [
+        "1.0",
+        "1.1"
+      ]
+    },
+    "agent_id": {
+      "type": "string",
+      "pattern": "^A\\d{2}-[a-z0-9][a-z0-9-]*$"
+    },
+    "active": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "required": [
+        "platform",
+        "session_id",
+        "profile",
+        "workspace",
+        "started_at",
+        "last_synced_message_id",
+        "last_synced_at"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "$ref": "#/definitions/runtimeBindingState"
+        }
+      ],
+      "properties": {
+        "platform": {
+          "type": "string",
+          "enum": [
+            "hermes",
+            "claude-code",
+            "codex",
+            "other"
+          ]
+        },
+        "session_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "profile": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string",
+          "minLength": 1
+        },
+        "started_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "last_synced_message_id": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "last_synced_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "runtime_profile_id": {
+          "type": "string",
+          "pattern": "^RP-[0-9]{6}$"
+        },
+        "runtime_profile_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "last_archive": {
+          "type": "string"
+        },
+        "synced_message_hashes": {
+          "type": "object"
+        },
+        "last_source_file_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "last_normalized_body_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "last_message_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sync_gaps": {
+          "type": "array"
+        }
+      }
+    },
+    "history": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "platform",
+          "session_id",
+          "started_at",
+          "ended_at",
+          "superseded_by"
+        ],
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "$ref": "#/definitions/runtimeBindingState"
+          }
+        ],
+        "properties": {
+          "platform": {
+            "type": "string",
+            "enum": [
+              "hermes",
+              "claude-code",
+              "codex",
+              "other"
+            ]
+          },
+          "session_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "profile": {
+            "type": "string"
+          },
+          "workspace": {
+            "type": "string"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "ended_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "superseded_by": {
+            "type": "string",
+            "minLength": 1
+          },
+          "last_synced_message_id": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "last_synced_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "runtime_profile_id": {
+            "type": "string",
+            "pattern": "^RP-[0-9]{6}$"
+          },
+          "runtime_profile_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "last_archive": {
+            "type": "string"
+          },
+          "synced_message_hashes": {
+            "type": "object"
+          },
+          "last_source_file_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "last_normalized_body_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "last_message_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sync_gaps": {
+            "type": "array"
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "schema_version": {
+            "const": "1.1"
+          }
+        },
+        "required": [
+          "schema_version"
+        ]
+      },
+      "then": {
+        "properties": {
+          "active": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "allOf": [
+                  {
+                    "$ref": "#/definitions/activeBinding"
+                  },
+                  {
+                    "required": [
+                      "runtime_profile_id",
+                      "runtime_profile_sha256"
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "history": {
+            "type": "array",
+            "items": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/historyBinding"
+                },
+                {
+                  "required": [
+                    "runtime_profile_id",
+                    "runtime_profile_sha256"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  ],
+  "definitions": {
+    "runtimeBindingState": {
+      "oneOf": [
+        {
+          "required": [
+            "runtime_profile_id",
+            "runtime_profile_sha256"
+          ]
+        },
+        {
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "runtime_profile_id"
+                ]
+              },
+              {
+                "required": [
+                  "runtime_profile_sha256"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "activeBinding": {
+      "type": "object",
+      "required": [
+        "platform",
+        "session_id",
+        "profile",
+        "workspace",
+        "started_at",
+        "last_synced_message_id",
+        "last_synced_at"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "$ref": "#/definitions/runtimeBindingState"
+        }
+      ],
+      "properties": {
+        "platform": {
+          "type": "string",
+          "enum": [
+            "hermes",
+            "claude-code",
+            "codex",
+            "other"
+          ]
+        },
+        "session_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "profile": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string",
+          "minLength": 1
+        },
+        "started_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "last_synced_message_id": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "last_synced_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "runtime_profile_id": {
+          "type": "string",
+          "pattern": "^RP-[0-9]{6}$"
+        },
+        "runtime_profile_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "last_archive": {
+          "type": "string"
+        },
+        "synced_message_hashes": {
+          "type": "object"
+        },
+        "last_source_file_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "last_normalized_body_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "last_message_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sync_gaps": {
+          "type": "array"
+        }
+      }
+    },
+    "historyBinding": {
+      "type": "object",
+      "required": [
+        "platform",
+        "session_id",
+        "started_at",
+        "ended_at",
+        "superseded_by"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "$ref": "#/definitions/runtimeBindingState"
+        }
+      ],
+      "properties": {
+        "platform": {
+          "type": "string",
+          "enum": [
+            "hermes",
+            "claude-code",
+            "codex",
+            "other"
+          ]
+        },
+        "session_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "profile": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        },
+        "started_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "ended_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "superseded_by": {
+          "type": "string",
+          "minLength": 1
+        },
+        "last_synced_message_id": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "last_synced_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "runtime_profile_id": {
+          "type": "string",
+          "pattern": "^RP-[0-9]{6}$"
+        },
+        "runtime_profile_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "last_archive": {
+          "type": "string"
+        },
+        "synced_message_hashes": {
+          "type": "object"
+        },
+        "last_source_file_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "last_normalized_body_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "last_message_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sync_gaps": {
+          "type": "array"
+        }
+      }
+    }
+  }
+}

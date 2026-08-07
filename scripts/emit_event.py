@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import argparse
-import fcntl
+from project_memory_lib import exclusive_lock
 import os
 import re
 import subprocess
@@ -981,8 +981,7 @@ def main() -> int:
     )
 
     lock_path = events_dir / ".sequence.lock"
-    with lock_path.open("a+", encoding="utf-8") as lock:
-        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+    with exclusive_lock(lock_path):
         try:
             existing = event_records(events_dir)
         except ProtocolError as exc:
@@ -1203,7 +1202,6 @@ def main() -> int:
         _, state_errors = rebuild_state(run_dir)
         if state_errors:
             raise SystemExit("\n".join(state_errors))
-        fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
     print(target)
     return 0
 

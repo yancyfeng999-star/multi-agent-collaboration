@@ -42,5 +42,46 @@
 | `version-contract.yaml.template` | Coordinator 冻结的项目交付版本合同 |
 | `release-candidate.yaml.template` | 顺序递增且不可覆盖的 RC |
 
+## Agent 模板（新增）
+
+| 模板 | 用途 |
+| --- | --- |
+| `templates/agent/ROLE.md` | Agent 岗位章程 |
+| `templates/agent/SYSTEM_PROMPT.md` | Agent 恢复提示词 |
+| `templates/agent/CHECKLIST.md` | Agent 检查清单 |
+| `templates/agent/AGENT_PROFILE.json` | 长期 Agent 身份、角色版本和 declared runtime policy |
+
+## 对话模板（新增）
+
+| 模板 | 用途 |
+| --- | --- |
+| `templates/conversation/CHECKPOINT.md` | 上下文检查点 |
+| `templates/conversation/HANDOFF.md` | 标准化交接 |
+| `templates/conversation/CURRENT_CONTEXT.md` | Agent 当前上下文 |
+| `templates/conversation/SESSION_MAP.json` | 平台会话映射 |
+
+## 项目模板（新增）
+
+| 模板 | 用途 |
+| --- | --- |
+| `templates/project/TEAM.yaml` | 团队清单 |
+| `templates/project/PROTOCOL.md` | 协同协议说明 |
+| `templates/project/CURRENT_PROJECT_CONTEXT.md` | 项目级上下文 |
+| `templates/project/DECISIONS.md` | 决策记录 |
+| `templates/project/PROJECT_CHECKPOINT.md` | 项目级不可变检查点 |
+
+## Schema 定义（新增）
+
+| Schema | 用途 |
+| --- | --- |
+| `schemas/task.schema.json` | 任务定义 Schema |
+| `schemas/handoff.schema.json` | 交接文档 Schema |
+| `schemas/checkpoint.schema.json` | 检查点 Schema |
+| `schemas/session-map.schema.json` | 会话映射 Schema |
+| `schemas/project-checkpoint.schema.json` | 项目级检查点 Schema |
+| `schemas/agent-profile.schema.json` | 长期 Agent Profile Schema |
+| `schemas/runtime-profile.schema.json` | 单次 Session 不可变 Runtime Profile Schema |
+| `schemas/agent-activity.schema.json` | Task Attempt Activity 与真实 usage 引用 Schema |
+
 模板中的 `<placeholder>` 不是有效运行数据。不要复制模板后声称任务、审批、验证或发布已经
 发生。
