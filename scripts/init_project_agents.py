@@ -55,6 +55,71 @@ def write_json(path: Path, data: dict):
     atomic_write(path, content)
 
 
+def catalog_for(role_name: str) -> dict:
+    """Return a stable, user-facing role summary without runtime state."""
+    key = role_name.lower()
+    known = {
+        "coordinator": {
+            "tier": "core",
+            "summary": "澄清目标、守住范围、整合结果并负责版本收口。",
+            "capabilities": ["目标澄清", "范围治理", "结果整合", "版本收口"],
+            "suitable_for": ["目标或验收标准还不清楚", "需要统一边界和最终交付"],
+            "avoid_when": ["目标和文件范围都已明确，只需一次单点执行"],
+            "launch_prompt": "先只读读取项目约束和实际状态，确认目标、范围、验收标准与版本边界；未经用户授权，不修改文件、不创建线程、不增加 Agent，也不执行高风险操作。",
+        },
+        "owner": {
+            "tier": "core",
+            "summary": "在明确授权的范围内完成一个可验证的交付目标。",
+            "capabilities": ["任务实现", "文件修改", "结果交接", "验证执行"],
+            "suitable_for": ["目标、范围和验收标准已经明确"],
+            "avoid_when": ["项目边界或完成标准仍需要先澄清"],
+            "launch_prompt": "先读取项目约束和授权范围，只处理明确交给你的目标；真实报告修改文件、验证结果、风险和未完成项。",
+        },
+        "quality": {
+            "tier": "core",
+            "summary": "独立对照验收标准检查实现、证据和回归风险。",
+            "capabilities": ["Review", "QA", "证据核对", "风险发现"],
+            "suitable_for": ["已经有可审查的实现、方案或交付物"],
+            "avoid_when": ["没有可审查结果，或自己就是该任务 Owner"],
+            "launch_prompt": "只读检查目标、变更和验证证据；按验收标准报告通过项、失败项、风险和缺失证据，不自行扩大范围。",
+        },
+        "reviewer": {
+            "tier": "core",
+            "summary": "独立审查变更是否符合目标、边界和质量要求。",
+            "capabilities": ["Review", "差异检查", "风险发现"],
+            "suitable_for": ["需要独立审查代码或文档变更"],
+            "avoid_when": ["还没有可审查的结果，或自己参与了实现"],
+            "launch_prompt": "只读检查目标、变更和证据，指出阻断问题、风险与缺失验证，不修改实现文件。",
+        },
+        "qa": {
+            "tier": "core",
+            "summary": "按验收标准执行验证并明确真实通过或失败证据。",
+            "capabilities": ["QA", "回归验证", "验收证据"],
+            "suitable_for": ["实现已经完成，需要执行验收检查"],
+            "avoid_when": ["没有稳定的验收标准，或自己负责实现该任务"],
+            "launch_prompt": "按验收标准执行必要检查，记录真实命令和结果；不把聊天陈述或未运行的检查描述为通过。",
+        },
+        "release": {
+            "tier": "optional",
+            "summary": "核对版本合同、发布门禁和回滚准备后完成收口。",
+            "capabilities": ["版本合同", "发布门禁", "回滚准备", "变更记录"],
+            "suitable_for": ["项目已有正式发布、部署或回滚流程"],
+            "avoid_when": ["研究、方案或普通单点修改不进入正式发布"],
+            "launch_prompt": "先读取项目版本规则和发布门禁，只核对基线、目标版本、证据和回滚准备；没有明确授权不执行发布、部署或线上操作。",
+        },
+    }
+    if key in known:
+        return known[key]
+    return {
+        "tier": "custom",
+        "summary": f"负责 {role_name} 范围内的明确项目目标。",
+        "capabilities": [role_name],
+        "suitable_for": ["项目已明确授权且与该岗位匹配的专项工作"],
+        "avoid_when": ["超出该岗位权限，或缺少明确目标与验收标准"],
+        "launch_prompt": "先只读读取项目约束和授权范围，只处理该岗位明确负责的目标；真实报告修改、验证、风险和未完成项。",
+    }
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="初始化项目 Agent 结构")
     parser.add_argument("--project-root", required=True, help="项目根目录")
@@ -134,6 +199,7 @@ def create_agent_profile(agent_dir: Path, agent_id: str, role_name: str):
             "paused_at": None, "retired_at": None, "retirement_reason": None,
         },
         "metadata": {"display_name": role_name.replace("-", " ").title(), "labels": [role_name]},
+        "catalog": catalog_for(role_name),
     }
     write_json(agent_dir / "AGENT_PROFILE.json", profile)
 

@@ -49,7 +49,7 @@
 | `templates/agent/ROLE.md` | Agent 岗位章程 |
 | `templates/agent/SYSTEM_PROMPT.md` | Agent 恢复提示词 |
 | `templates/agent/CHECKLIST.md` | Agent 检查清单 |
-| `templates/agent/AGENT_PROFILE.json` | 长期 Agent 身份、角色版本和 declared runtime policy |
+| `templates/agent/AGENT_PROFILE.json` | 长期 Agent 身份、角色版本、declared runtime policy 和稳定目录投影 |
 
 ## 对话模板（新增）
 
@@ -79,7 +79,7 @@
 | `schemas/checkpoint.schema.json` | 检查点 Schema |
 | `schemas/session-map.schema.json` | 会话映射 Schema |
 | `schemas/project-checkpoint.schema.json` | 项目级检查点 Schema |
-| `schemas/agent-profile.schema.json` | 长期 Agent Profile Schema |
+| `schemas/agent-profile.schema.json` | 长期 Agent Profile Schema（含无运行状态的目录投影） |
 | `schemas/runtime-profile.schema.json` | 单次 Session 不可变 Runtime Profile Schema |
 | `schemas/agent-activity.schema.json` | Task Attempt Activity 与真实 usage 引用 Schema |
 

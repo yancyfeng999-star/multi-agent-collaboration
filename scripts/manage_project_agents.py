@@ -16,6 +16,7 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).parent
 sys.path.insert(0, str(SCRIPT_DIR))
 from protocol_lib import ProtocolError, atomic_write
+from init_project_agents import catalog_for
 from project_memory_lib import exclusive_lock
 
 AGENT_ID_RE = re.compile(r"^A\d{2}-[a-z0-9][a-z0-9-]*$")
@@ -56,6 +57,45 @@ def find_agent(team: dict, agent_id: str) -> dict:
         if record.get("agent_id") == agent_id:
             return record
     raise ProtocolError(f"agent does not exist: {agent_id}")
+
+
+def sync_profile(bus: Path, record: dict, *, role_changed: bool = False) -> None:
+    """Keep stable profile identity, catalog projection, and lifecycle in sync."""
+    relative = record.get("agent_profile_file") or f"agents/{record['agent_id']}/AGENT_PROFILE.json"
+    path = bus / relative
+    if not path.is_file():
+        return
+    try:
+        profile = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ProtocolError(f"invalid agent profile: {path}: {exc}") from exc
+    role_name = record.get("role_name", "member")
+    role_relative = record.get("role_file") or f"agents/{record['agent_id']}/ROLE.md"
+    role_path = bus / role_relative
+    if not role_path.is_file():
+        raise ProtocolError(f"role file not found: {role_path}")
+    profile["role"] = {
+        "role_id": role_name,
+        "path": role_relative,
+        "sha256": hashlib.sha256(role_path.read_bytes()).hexdigest(),
+    }
+    profile["profile_version"] = int(profile.get("profile_version", 1)) + 1
+    profile.setdefault("metadata", {})["display_name"] = role_name.replace("-", " ").title()
+    profile.setdefault("metadata", {}).setdefault("labels", [role_name])
+    if role_changed or "catalog" not in profile:
+        profile["catalog"] = catalog_for(role_name)
+    lifecycle = profile.setdefault("lifecycle", {})
+    status = record.get("status", "active")
+    history = record.get("status_history", [])
+    transition = history[-1] if history else {}
+    lifecycle.update({
+        "status": status,
+        "updated_at": now(),
+        "paused_at": transition.get("at") if status == "paused" else None,
+        "retired_at": transition.get("at") if status == "retired" else None,
+        "retirement_reason": (transition.get("reason") or "retired") if status == "retired" else None,
+    })
+    atomic_write(path, json.dumps(profile, ensure_ascii=False, indent=2) + "\n")
 
 
 def validate_id(agent_id: str) -> None:
@@ -128,9 +168,46 @@ def _json_bytes(value: object) -> bytes:
 def _repair_contents(bus: Path, record: dict, project_root: str) -> dict[str, bytes]:
     agent_id = record["agent_id"]
     created = record.get("created_at") or now()
+    role_name = record.get("role_name", "member")
+    role_content = role_document(agent_id, role_name, record.get("domain"), created).encode()
+    role_path = bus / "agents" / agent_id / "ROLE.md"
+    role_hash = hashlib.sha256(role_path.read_bytes()).hexdigest() if role_path.is_file() else hashlib.sha256(role_content).hexdigest()
+    status = record.get("status", "active")
+    history = record.get("status_history", [])
+    last_transition = history[-1] if history else {}
+    lifecycle = {
+        "status": status,
+        "created_at": created,
+        "updated_at": now(),
+        "paused_at": last_transition.get("at") if status == "paused" else None,
+        "retired_at": last_transition.get("at") if status == "retired" else None,
+        "retirement_reason": (last_transition.get("reason") or "retired") if status == "retired" else None,
+    }
+    profile = {
+        "schema_version": "1.0",
+        "doc_type": "agent_profile",
+        "profile_version": 1,
+        "agent_id": agent_id,
+        "role": {
+            "role_id": role_name,
+            "path": f"agents/{agent_id}/ROLE.md",
+            "sha256": role_hash,
+        },
+        "declared_model_policy": {
+            "policy_kind": "declared_default",
+            "preferred_models": [],
+            "preferred_provider": None,
+            "runtime_kind": None,
+            "source": "team_registry",
+        },
+        "lifecycle": lifecycle,
+        "metadata": {"display_name": role_name.replace("-", " ").title(), "labels": [role_name]},
+        "catalog": catalog_for(role_name),
+    }
     return {
-        "ROLE.md": role_document(agent_id, record.get("role_name", "member"), record.get("domain"), created).encode(),
-        "SYSTEM_PROMPT.md": prompt_document(agent_id, record.get("role_name", "member"), project_root, created).encode(),
+        "ROLE.md": role_content,
+        "AGENT_PROFILE.json": _json_bytes(profile),
+        "SYSTEM_PROMPT.md": prompt_document(agent_id, role_name, project_root, created).encode(),
         "CHECKLIST.md": checklist_document(agent_id, created).encode(),
         "conversations/SESSION_MAP.json": _json_bytes({"schema_version": "1.0", "agent_id": agent_id, "active": None, "history": []}),
         "conversations/CURRENT_CONTEXT.md": f"---\nschema_version: \"1.0\"\ndoc_type: current_agent_context\nagent_id: \"{agent_id}\"\nupdated_at: \"{now()}\"\n---\n\n# 当前 Agent 上下文\n".encode(),
@@ -319,7 +396,8 @@ def execute(args: argparse.Namespace) -> int:
             record = {"agent_id": args.agent_id, "role_name": args.role_name, "domain": args.domain,
                       "status": "active", "created_at": stamp, "status_history": [], "role_history": [],
                       "role_file": f"agents/{args.agent_id}/ROLE.md",
-                      "system_prompt_file": f"agents/{args.agent_id}/SYSTEM_PROMPT.md"}
+                      "system_prompt_file": f"agents/{args.agent_id}/SYSTEM_PROMPT.md",
+                      "agent_profile_file": f"agents/{args.agent_id}/AGENT_PROFILE.json"}
             repair_files(bus, record, str(Path(args.project_root).resolve()))
             team.setdefault("agents", []).append(record)
             save_team(team_path, team)
@@ -340,6 +418,7 @@ def execute(args: argparse.Namespace) -> int:
                     record["domain"] = args.domain
                 # ROLE is mutable current charter; archived role transition remains immutable in TEAM.
                 atomic_write(bus / record["role_file"], role_document(args.agent_id, record.get("role_name", "member"), record.get("domain"), record.get("created_at", now())))
+                sync_profile(bus, record, role_changed=args.role_name is not None)
             elif args.action in {"pause", "resume", "retire", "archive"}:
                 target = {"pause": "paused", "resume": "active", "retire": "retired", "archive": "retired"}[args.action]
                 current = record.get("status", "active")
@@ -353,6 +432,7 @@ def execute(args: argparse.Namespace) -> int:
                         event["reason"] = args.reason
                     record.setdefault("status_history", []).append(event)
                     record["status"] = target
+                    sync_profile(bus, record)
             elif args.action == "repair":
                 operations, writes = build_repair_plan(bus, record, str(Path(args.project_root).resolve()))
                 plan_hash = hashlib.sha256(json.dumps(operations, sort_keys=True, separators=(",", ":")).encode()).hexdigest()

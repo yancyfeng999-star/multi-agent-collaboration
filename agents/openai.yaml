@@ -1,4 +1,4 @@
 interface:
   display_name: "多智能体协同 | Multi-Agent Collaboration"
-  short_description: "以版本合同、可验证文档、权限边界和治理门禁为底座的多智能体协同"
-  default_prompt: "使用 $multi-agent-collaboration 从询问和只读扫描开始，判断项目版本治理需求，再建立可恢复、可验证的多智能体协同流程。"
+  short_description: "先从 Agent 角色目录手动启动，按需切换 Protocol v3 高级协同治理"
+  default_prompt: "使用 $multi-agent-collaboration 先打开 Agent 目录并人工选择一个角色；只在明确需要并行、交接、审计或高风险控制时启用 Protocol v3。"

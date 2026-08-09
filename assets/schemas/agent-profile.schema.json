@@ -124,6 +124,32 @@
           "uniqueItems": true
         }
       }
+    },
+    "catalog": {
+      "description": "Stable user-facing role projection. It must not contain current task, Run, session, model, provider, lease, or runtime state.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tier", "summary", "capabilities", "suitable_for", "avoid_when", "launch_prompt"],
+      "properties": {
+        "tier": {"type": "string", "enum": ["core", "optional", "custom"]},
+        "summary": {"type": "string", "minLength": 1, "maxLength": 500},
+        "capabilities": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1, "maxLength": 120},
+          "uniqueItems": true
+        },
+        "suitable_for": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1, "maxLength": 300},
+          "uniqueItems": true
+        },
+        "avoid_when": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1, "maxLength": 300},
+          "uniqueItems": true
+        },
+        "launch_prompt": {"type": "string", "minLength": 1, "maxLength": 3000}
+      }
     }
   }
 }

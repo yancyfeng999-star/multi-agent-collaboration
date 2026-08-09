@@ -26,5 +26,13 @@
   "metadata": {
     "display_name": "Coordinator",
     "labels": ["coordinator"]
+  },
+  "catalog": {
+    "tier": "core",
+    "summary": "澄清目标、守住范围、整合结果并负责版本收口。",
+    "capabilities": ["目标澄清", "范围治理", "结果整合", "版本收口"],
+    "suitable_for": ["目标或验收标准还不清楚", "需要统一边界和最终交付"],
+    "avoid_when": ["目标和文件范围都已明确，只需一次单点执行"],
+    "launch_prompt": "先只读读取项目约束和实际状态，确认目标、范围、验收标准与版本边界；未经用户授权，不修改文件、不创建线程、不增加 Agent，也不执行高风险操作。"
   }
 }
