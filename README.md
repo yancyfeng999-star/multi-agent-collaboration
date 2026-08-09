@@ -31,6 +31,18 @@
 v3。Skill 版本与协议版本独立递增。`SKILL.md` 是规范入口，根 README 用于介绍和导航；
 两者冲突时应先修正文档与实现，不以 README 放宽协议门禁。
 
+### 版本边界
+
+| 对象 | 当前值/权威源 | 变化条件 |
+| --- | --- | --- |
+| Skill 版本 | `1.3.0` / [VERSION](VERSION) | 用户入口、文档、脚本、Schema、模板或默认行为变化 |
+| Protocol 版本 | `3` / `scripts/protocol_lib.py` | Run、任务、事件、状态机、证据或恢复语义不兼容变化 |
+| 项目业务版本 | 目标项目版本文件或 `version-contract` | 目标项目交付范围、兼容性或正式发布内容变化 |
+
+更新本 Skill 不会自动改变目标项目业务版本。发布 Skill 时同步更新 VERSION、CHANGELOG、
+中英文说明、入口和测试；只有目标项目进入 `tracked` Run 后，才按项目自己的版本规则治理
+业务版本。
+
 ## 中文说明
 
 ### 定位
@@ -233,6 +245,18 @@ The default page does not read Run data, show current tasks or runtime status, c
 Agents, or orchestrate work automatically. The advanced layer still governs task ownership,
 permission boundaries, parallel scheduling, handoffs, conflict control, failure recovery, quality
 assurance, version contracts, and human approval gates.
+
+### Version Boundaries
+
+| Object | Current value / source of truth | Changes when |
+| --- | --- | --- |
+| Skill version | `1.3.0` / `VERSION` | The user entry, docs, scripts, schemas, templates, or default behavior changes |
+| Protocol version | `3` / `scripts/protocol_lib.py` | Run, task, event, state-machine, evidence, or recovery semantics change incompatibly |
+| Project business version | The target project's version source or `version-contract` | The target project's delivery scope, compatibility, or formal release changes |
+
+Updating this Skill does not automatically change a target project's business version. A Skill
+release updates its version authority, changelog, bilingual docs, entry page, and tests; project
+version governance begins only inside a `tracked` Run under the target project's own rules.
 
 ### Core Capabilities
 

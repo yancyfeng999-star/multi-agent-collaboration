@@ -37,6 +37,6 @@ python3 -m compileall -q scripts tests
 6. Markdown 本地链接检查；
 7. `git diff --check`。
 
-当前 v1.3.0 本地回归为：`python -m unittest discover -s tests -p 'test_*.py'` 的 201 tests OK，
+当前 v1.3.0 本地回归为：`python -m unittest discover -s tests -p 'test_*.py'` 的 202 tests OK，
 `compileall`、顶层 CLI help、8/8 JSON Schema、HTML/JavaScript 静态检查和本地链接检查通过。
 这些数字是发布证据，不是未来版本的固定断言；测试变化后应以最新真实命令输出更新。

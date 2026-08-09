@@ -23,6 +23,21 @@ description: Use when a project needs an Agent role catalog or manual launch, or
 - 无项目时，由用户指定一个 coordination/output 目录保存文档总线。
 - 项目专属角色和标准只写入该次 run，不写回全局 Skill。
 
+## Skill 与项目的版本边界
+
+三个版本对象必须分开记录，不得用一个版本号代替另一个：
+
+| 对象 | 权威源 | 何时变化 |
+| --- | --- | --- |
+| **Skill 版本** | 根目录 `VERSION` | 用户入口、文档、脚本、Schema、模板或默认行为发生用户可见变化 |
+| **Protocol 版本** | `scripts/protocol_lib.py` 与协议文档 | Run、任务、事件、状态机、证据或恢复语义发生不兼容变化 |
+| **项目业务版本** | 目标项目自己的版本文件或 `version-contract` | 目标项目交付范围、兼容性或发布内容发生变化 |
+
+本 Skill 当前为 Skill `1.3.0`、Protocol `3`。更新 Skill 不会自动修改目标项目业务版本；
+只有进入 `tracked` Run 并满足目标项目自己的版本规则时，才治理项目业务版本。发布本 Skill
+时必须同步 `VERSION`、`CHANGELOG.md`、中英文 README、`SKILL.md`、相关测试和用户入口，
+先完成验证，再推送并通过代码审查合并。
+
 ## 默认用户入口：Agent 目录与人工启动
 
 用户从 [agents.html](agents.html) 选择一个角色、填写项目根目录/目标/范围/验收标准并复制

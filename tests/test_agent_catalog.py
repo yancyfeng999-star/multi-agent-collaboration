@@ -40,6 +40,15 @@ class AgentCatalogTests(unittest.TestCase):
             self.assertIn("人工启动", text)
             self.assertIn("高级治理", text)
 
+    def test_docs_explain_independent_skill_protocol_and_project_versions(self) -> None:
+        for text in (self.skill, self.readme):
+            self.assertIn("版本边界", text)
+            self.assertIn("Skill 版本", text)
+            self.assertIn("Protocol 版本", text)
+            self.assertIn("项目业务版本", text)
+        self.assertIn("唯一版本权威源", self.skill)
+        self.assertIn("1.3.0", self.readme)
+
 
 if __name__ == "__main__":
     unittest.main()
