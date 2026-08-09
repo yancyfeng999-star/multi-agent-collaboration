@@ -1,8 +1,18 @@
-# v1.2.0 合并架构与数据边界
+# v1.3.0 合并架构与数据边界
 
-本文描述 Multi-Agent Collaboration v1.2.0 的**当前实现结构**。规范入口是
+本文描述 Multi-Agent Collaboration v1.3.0 的**当前实现结构**。规范入口是
 [SKILL.md](../SKILL.md)；字段和操作细节分别以 [references/](../references/README.md)、
 [assets/](../assets/README.md) 和 [scripts/](../scripts/README.md) 为准。
+
+## 0. 用户入口层
+
+`agents.html` 是默认的用户入口，负责展示稳定角色、适用场景和启动边界。用户填写项目、
+目标、范围和验收标准后自行复制启动指令；页面不读取 Run、不显示当前任务或运行状态，也
+不创建线程、增加 Agent 或自动编排。需要并行、正式证据、跨会话恢复或高风险治理时，才
+进入下方 Protocol v3 Run / 长期 Agent 层。
+
+项目专属角色以 `TEAM.yaml`、`AGENT_PROFILE.json` 和 `ROLE.md` 为真源；Profile 的 `catalog`
+只保存稳定目录投影，不保存 session、model、provider、lease 或其他运行事实。
 
 ## 1. 两层事实模型
 

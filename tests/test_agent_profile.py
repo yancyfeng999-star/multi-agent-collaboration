@@ -32,6 +32,18 @@ class AgentProfileSchemaTests(unittest.TestCase):
         self.assertNotIn("actual_model", json.dumps(self.template))
         self.assertFalse(self.schema["additionalProperties"])
 
+    def test_catalog_projection_explains_role_without_runtime_state(self) -> None:
+        catalog = self.template["catalog"]
+        self.assertEqual(catalog["tier"], "core")
+        self.assertTrue(catalog["capabilities"])
+        self.assertTrue(catalog["suitable_for"])
+        self.assertTrue(catalog["avoid_when"])
+        self.assertTrue(catalog["launch_prompt"])
+        serialized = json.dumps(catalog, ensure_ascii=False)
+        for forbidden in ("current_task", "task_states", "session_id", "model", "provider", "lease"):
+            self.assertNotIn(forbidden, serialized)
+        self.assert_invalid(lambda d: d["catalog"].__setitem__("current_task", "runtime"))
+
     def test_agent_id_and_role_reference_hash_are_strict(self) -> None:
         self.assert_invalid(lambda d: d.__setitem__("agent_id", "coordinator"))
         self.assert_invalid(lambda d: d["role"].__setitem__("path", "/tmp/ROLE.md"))

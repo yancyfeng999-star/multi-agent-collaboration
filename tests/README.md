@@ -23,6 +23,7 @@ python3 -m compileall -q scripts tests
 | 项目收口 | Run bridge、PCP、模型分配视图、index、validator、finalize 和来源漂移 |
 | 迁移与修复 | dry-run、plan hash、幂等、备份、quarantine、故障注入和回滚 |
 | 适配器 | document fallback、Hermes/Codex 显式 bridge、会话/workspace 边界和不误报唤醒 |
+| 用户入口 | `agents.html` 角色卡、最小启动表单、手动复制边界和无运行状态约束 |
 
 ## 发布门禁
 
@@ -36,6 +37,6 @@ python3 -m compileall -q scripts tests
 6. Markdown 本地链接检查；
 7. `git diff --check`。
 
-当前 v1.2.0 本地最终基线为：两轮 `197 passed, 79 subtests`，`unittest` 197 tests OK，
-24/24 顶层 CLI 和 8/8 JSON Schema 通过。该数字是发布证据，不是未来版本的固定断言；测试变化后
-应以最新真实命令输出更新。
+当前 v1.3.0 本地回归为：`python -m unittest discover -s tests -p 'test_*.py'` 的 202 tests OK，
+`compileall`、顶层 CLI help、8/8 JSON Schema、HTML/JavaScript 静态检查和本地链接检查通过。
+这些数字是发布证据，不是未来版本的固定断言；测试变化后应以最新真实命令输出更新。

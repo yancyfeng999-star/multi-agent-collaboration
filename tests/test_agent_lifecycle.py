@@ -46,6 +46,10 @@ class AgentLifecycleTests(unittest.TestCase):
         self.assertEqual(record["role_name"], "release-quality")
         self.assertEqual(record["role_history"][-1]["role_name"], "quality")
         self.assertTrue((self.bus / record["role_file"]).is_file())
+        self.assertTrue((self.bus / record["agent_profile_file"]).is_file())
+        profile = json.loads((self.bus / record["agent_profile_file"]).read_text())
+        self.assertEqual(profile["role"]["role_id"], "release-quality")
+        self.assertEqual(profile["catalog"]["tier"], "custom")
         rejected = self.manage("update", "--agent-id", "A03-qa", "--new-agent-id", "A04-qa", ok=False)
         self.assertIn("immutable", (rejected.stdout + rejected.stderr).lower())
 

@@ -1,6 +1,6 @@
 ---
 name: multi-agent-collaboration
-description: Use when a project needs multiple agents, parallel task ownership, cross-session continuity, project-local audit trails, governed review/QA, or recovery across agent platforms.
+description: Use when a project needs an Agent role catalog or manual launch, or needs multiple agents, parallel task ownership, cross-session continuity, project-local audit trails, governed review/QA, or recovery across agent platforms.
 ---
 
 # 多智能体协同（Multi-Agent Collaboration）
@@ -8,6 +8,8 @@ description: Use when a project needs multiple agents, parallel task ownership, 
 - 中文名称：多智能体协同
 - 英文名称：Multi-Agent Collaboration
 - Skill ID：`multi-agent-collaboration`
+- Skill 版本：`1.3.0`（唯一版本权威源：`VERSION`）
+- Protocol 版本：`3`
 - 调用方式：`$multi-agent-collaboration`
 
 ## 全局适用范围
@@ -21,12 +23,47 @@ description: Use when a project needs multiple agents, parallel task ownership, 
 - 无项目时，由用户指定一个 coordination/output 目录保存文档总线。
 - 项目专属角色和标准只写入该次 run，不写回全局 Skill。
 
+## Skill 与项目的版本边界
+
+三个版本对象必须分开记录，不得用一个版本号代替另一个：
+
+| 对象 | 权威源 | 何时变化 |
+| --- | --- | --- |
+| **Skill 版本** | 根目录 `VERSION` | 用户入口、文档、脚本、Schema、模板或默认行为发生用户可见变化 |
+| **Protocol 版本** | `scripts/protocol_lib.py` 与协议文档 | Run、任务、事件、状态机、证据或恢复语义发生不兼容变化 |
+| **项目业务版本** | 目标项目自己的版本文件或 `version-contract` | 目标项目交付范围、兼容性或发布内容发生变化 |
+
+本 Skill 当前为 Skill `1.3.0`、Protocol `3`。更新 Skill 不会自动修改目标项目业务版本；
+只有进入 `tracked` Run 并满足目标项目自己的版本规则时，才治理项目业务版本。发布本 Skill
+时必须同步 `VERSION`、`CHANGELOG.md`、中英文 README、`SKILL.md`、相关测试和用户入口，
+先完成验证，再推送并通过代码审查合并。
+
+## 默认用户入口：Agent 目录与人工启动
+
+用户从 [agents.html](agents.html) 选择一个角色、填写项目根目录/目标/范围/验收标准并复制
+启动指令。页面只做角色说明和人工启动，不读取 Run 状态、不显示当前任务、不创建线程、不
+自动增加 Agent，也不自动编排任务。
+
+默认启动模式只使用一个用户选定的 Agent：
+
+1. Agent 先只读读取项目内的指令、README、约束和实际状态。
+2. Agent 复述目标、范围、验收标准和缺失信息。
+3. 只有用户授权的范围才允许修改；projectless 任务使用指定的 coordination/output 目录。
+4. 需要多个 Agent、正式证据或高风险操作时，才切换到下方的 Protocol v3 高级治理 Run 或长期 Agent 层。
+
+页面的角色卡不是项目事实源。项目稳定身份和职责以项目自己的 `TEAM.yaml`、
+`AGENT_PROFILE.json` 和 `ROLE.md` 为准；页面不能凭空推断项目 Agent 数量或当前状态。
+初始化项目 Agent 时，`AGENT_PROFILE.json` 应包含稳定的 `catalog` 投影（使命、能力、适用场景、
+禁用场景和启动骨架）；这些字段用于项目专属目录，不得包含运行状态。
+完整字段和启动骨架见 [agent-catalog.md](references/agent-catalog.md)。
+
 ## 能力路由
 
-先判断任务需要哪一层，不要默认把一次性并行任务升级为长期团队，也不要让长期项目绕过 Run 门禁。
+先判断任务需要哪一层，不要默认把单 Agent 使用升级为编排，也不要让长期项目绕过 Run 门禁。
 
 | 场景 | 选用能力 | 说明 |
 | --- | --- | --- |
+| 用户从目录选择一个 Agent，处理单一、明确、低风险目标 | 人工启动模式 | 不创建 Run、线程或任务图；Agent 仍须先读项目并遵守授权边界 |
 | 一次性、低风险、独立调查 | 简单并行或单个 Protocol v3 Run | 结束后可归档，不必创建长期身份 |
 | 单轮但高风险、需要 Review/QA/证据 | Protocol v3 Run | 使用任务、事件、锁、Review、QA 与收口门禁 |
 | 多天、多阶段、稳定角色或跨会话恢复 | 长期 Agent 层 | 建立 TEAM、身份、会话归档、checkpoint 与恢复包 |
@@ -38,6 +75,8 @@ description: Use when a project needs multiple agents, parallel task ownership, 
 - **长期 Agent 层**保存稳定身份、完整原文、历史 checkpoint、当前上下文和跨平台恢复资料。
 - **Protocol v3 Run**保存冻结任务、状态事件、ACK/lease、锁、Review、QA、证据和发布门禁。
 - **长期层 + Run 层**同时使用时，Run 是执行状态真源；长期层只通过受验证的桥接结果沉淀，不另造第二套任务状态机。
+- **人工启动模式**只负责用户选定的单 Agent 使用；它不是第三套持久化状态机。进入正式交付、
+  并行或高风险操作后，必须切换到 Run/长期层的事实模型。
 
 ## 核心原则
 
@@ -53,7 +92,8 @@ description: Use when a project needs multiple agents, parallel task ownership, 
 
 ## 第一步必须询问
 
-先从当前上下文提取已知答案，只询问缺失的高价值信息：
+从 HTML 启动表单或当前上下文提取已知答案，只询问缺失的高价值信息。单 Agent 人工启动不
+要求用户先回答完整治理问卷；以下字段是需要进入正式 Run 或执行写入前的最小确认：
 
 1. 目标项目根目录；无项目时询问 coordination/output 目录。
 2. 最终目标和交付物。
@@ -63,9 +103,10 @@ description: Use when a project needs multiple agents, parallel task ownership, 
 6. 项目版本治理判断：`tracked` 或 `not_applicable`，以及判断理由。
 7. 若为 `tracked`：版本权威源、当前版本、目标版本和版本规则。
 8. 是否明确允许创建多个 Codex 线程。
-9. 最大并行线程数，以及是否包含通用智能体。
+9. 最大并行线程数，以及是否包含通用智能体（仅在用户明确要求多 Agent 时）。
 
-不要重复询问用户已经明确的信息。用户确认线程方案之前，只允许只读扫描和规划。
+不要重复询问用户已经明确的信息。用户确认多 Agent 方案之前，只允许只读扫描和规划；
+单 Agent 人工启动本身不创建线程，也不触发线程确认门禁。
 
 详细访谈、扫描和任务图规则见 [interview-and-planning.md](references/interview-and-planning.md)。
 

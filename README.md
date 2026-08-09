@@ -7,7 +7,7 @@
 | 中文名称 | 多智能体协同 |
 | English Name | Multi-Agent Collaboration |
 | Skill ID | `multi-agent-collaboration` |
-| Skill Version | `1.2.0` |
+| Skill Version | `1.3.0` |
 | Protocol Version | `3` |
 | GitHub | [yancyfeng999-star/multi-agent-collaboration](https://github.com/yancyfeng999-star/multi-agent-collaboration) |
 | License | [MIT](LICENSE) |
@@ -18,28 +18,50 @@
 
 | 入口 | 用途 |
 | --- | --- |
+| [agents.html](agents.html) | 用户选择 Agent、填写最小上下文并复制启动指令的默认入口 |
 | [SKILL.md](SKILL.md) | Codex 执行本 Skill 时必须遵循的主协议 |
 | [references/README.md](references/README.md) | 按场景选择详细规范 |
 | [scripts/README.md](scripts/README.md) | 初始化、管理、事件和校验命令 |
 | [assets/README.md](assets/README.md) | 协议模板及字段用途 |
 | [tests/README.md](tests/README.md) | 测试范围和运行方法 |
 | [CHANGELOG.md](CHANGELOG.md) | 协议及用户可见行为变更 |
-| [docs/MERGED_STRUCTURE.md](docs/MERGED_STRUCTURE.md) | v1.2.0 两层架构、运行资料与收口数据流 |
+| [docs/MERGED_STRUCTURE.md](docs/MERGED_STRUCTURE.md) | 两层架构、Agent 目录、运行资料与收口数据流 |
 
-当前 Skill 正式版本为 `1.2.0`，唯一版本权威源是 [VERSION](VERSION)；当前可写协议为
+当前 Skill 正式版本为 `1.3.0`，唯一版本权威源是 [VERSION](VERSION)；当前可写协议为
 v3。Skill 版本与协议版本独立递增。`SKILL.md` 是规范入口，根 README 用于介绍和导航；
 两者冲突时应先修正文档与实现，不以 README 放宽协议门禁。
+
+### 版本边界
+
+| 对象 | 当前值/权威源 | 变化条件 |
+| --- | --- | --- |
+| Skill 版本 | `1.3.0` / [VERSION](VERSION) | 用户入口、文档、脚本、Schema、模板或默认行为变化 |
+| Protocol 版本 | `3` / `scripts/protocol_lib.py` | Run、任务、事件、状态机、证据或恢复语义不兼容变化 |
+| 项目业务版本 | 目标项目版本文件或 `version-contract` | 目标项目交付范围、兼容性或正式发布内容变化 |
+
+更新本 Skill 不会自动改变目标项目业务版本。发布 Skill 时同步更新 VERSION、CHANGELOG、
+中英文说明、入口和测试；只有目标项目进入 `tracked` Run 后，才按项目自己的版本规则治理
+业务版本。
 
 ## 中文说明
 
 ### 定位
 
-多智能体协同是一个面向通用项目的半自动智能体编排 Skill。它把复杂目标拆分为有依赖关系
-的任务，为每个任务分配明确的 Owner、Reviewer、QA 或其他动态角色，并通过可验证的文档
-协议保存任务、状态、证据、交接和审批记录。
+多智能体协同是一个面向通用项目的 Agent 角色目录与按需协同 Skill。默认由用户从 Agent
+目录中选择一个角色、填写最小项目上下文并人工启动（手动启动）；当用户明确需要并行、接力、审计或高
+风险治理时，再切换到 Protocol v3 的可验证文档协作流程。
 
-它不只是“同时启动多个 Agent”，而是解决多智能体工作中的任务分工、权限隔离、并行调度、
-结果交接、冲突控制、失败恢复、质量验证和人工门禁问题。
+它不默认展示项目状态或自动编排，但仍保留任务分工、权限隔离、并行调度、结果交接、冲突
+控制、失败恢复、质量验证、版本治理和人工门禁能力。
+
+### 用户默认入口
+
+打开 [agents.html](agents.html)，选择 Coordinator、Owner、Quality 或按需使用 Release，
+填写项目根目录、目标、允许修改范围和验收标准，然后复制启动指令到 Codex。该页面不读取
+Run、不显示当前任务、不统计运行状态，也不自动创建线程或 Agent。
+
+页面只是用户界面；项目稳定 Agent 身份仍以项目自己的 `TEAM.yaml`、`AGENT_PROFILE.json`
+和 `ROLE.md` 为准。完整启动边界见 [agent-catalog.md](references/agent-catalog.md)。
 
 ### 核心能力
 
@@ -53,6 +75,12 @@ v3。Skill 版本与协议版本独立递增。`SKILL.md` 是规范入口，根 
 - 在总控中断后，通过文档和事件状态恢复协同现场。
 - 把进入同一交付物的任务绑定到同一项目版本合同和 Release Train。
 - 自动探测并不可变记录实际运行资料，明确区分 actual observation 与 declared default。
+
+### 高级治理模式
+
+只有用户明确要求多 Agent 并行、跨会话恢复、正式 Review/QA、版本合同、生产/数据库/权限
+操作或发布审计时，才启用 Protocol v3 Run 或长期 Agent 层。高级层保留状态、事件、证据、
+锁、恢复和版本门禁，但不改变 Agent 目录的默认人工选择体验。
 
 ### 最小必要智能体
 
@@ -102,7 +130,16 @@ RC 编号和版本重评；普通 Owner、Reviewer 和 QA 保持原职责。只�
 `release_train_id`。任务返工增加 attempt，重新集成增加 RC；只有范围或兼容性变化才
 重新评估项目正式版本。
 
-### 标准工作流
+### 默认单 Agent 使用
+
+1. 打开 [agents.html](agents.html) 选择角色。
+2. 填写项目根目录、目标、允许修改范围和验收标准。
+3. 复制启动指令并粘贴到 Codex。
+4. Agent 先只读检查；需要多 Agent、正式证据或高风险治理时再请求切换模式。
+
+页面不会显示当前任务、运行状态或任务编排，也不会自动创建线程或 Agent。
+
+### 高级治理工作流
 
 1. 读取目标项目及其本地约束，不立即修改。
 2. 确认目标、范围、验收标准、治理模式和并行限制。
@@ -198,14 +235,28 @@ python3 <skill-dir>/scripts/validate_run.py \
 
 ### Purpose
 
-Multi-Agent Collaboration is a semi-automated orchestration skill for general-purpose projects. It
-decomposes a complex objective into dependent tasks, assigns explicit Owners, Reviewers, QA agents,
-or other dynamic roles, and preserves tasks, state, evidence, handoffs, and approvals through a
-verifiable document protocol.
+Multi-Agent Collaboration is an Agent role catalog and on-demand collaboration skill for
+general-purpose projects. Its default entry is a human-facing `agents.html` directory: the user
+chooses one known role, supplies the minimum project context, and manually starts that Agent. When
+the user explicitly needs parallel work, handoffs, audit, or high-risk release governance, the
+Skill switches to the verifiable Protocol v3 workflow.
 
-It is more than launching several agents at the same time. It governs task ownership, permission
-boundaries, parallel scheduling, handoffs, conflict control, failure recovery, quality assurance,
-and human approval gates.
+The default page does not read Run data, show current tasks or runtime status, create threads, add
+Agents, or orchestrate work automatically. The advanced layer still governs task ownership,
+permission boundaries, parallel scheduling, handoffs, conflict control, failure recovery, quality
+assurance, version contracts, and human approval gates.
+
+### Version Boundaries
+
+| Object | Current value / source of truth | Changes when |
+| --- | --- | --- |
+| Skill version | `1.3.0` / `VERSION` | The user entry, docs, scripts, schemas, templates, or default behavior changes |
+| Protocol version | `3` / `scripts/protocol_lib.py` | Run, task, event, state-machine, evidence, or recovery semantics change incompatibly |
+| Project business version | The target project's version source or `version-contract` | The target project's delivery scope, compatibility, or formal release changes |
+
+Updating this Skill does not automatically change a target project's business version. A Skill
+release updates its version authority, changelog, bilingual docs, entry page, and tests; project
+version governance begins only inside a `tracked` Run under the target project's own rules.
 
 ### Core Capabilities
 
@@ -247,6 +298,19 @@ existing one.
 | `standard` | Normal code changes | Owned paths, Git evidence, review, QA, and validation |
 | `strict` | Production, databases, finance, permissions, and releases | Formal approvals, security review, rollback, and release gates |
 
+### Default Manual Agent Use
+
+1. Open [`agents.html`](agents.html) and choose a role card.
+2. Fill in the project root, objective, allowed modification scope, and acceptance criteria.
+3. Copy the generated launch instruction and paste it into Codex yourself.
+4. Let the Agent begin with a read-only inspection; switch to advanced governance only when the
+   task actually needs multiple Agents, formal evidence, or high-risk controls.
+
+The catalog is a launch surface, not a Run console. It intentionally does not display current work,
+runtime state, task graphs, or automatic orchestration. Stable project identity comes from the
+project's `TEAM.yaml`, `AGENT_PROFILE.json`, and `ROLE.md`; see
+[`references/agent-catalog.md`](references/agent-catalog.md) for the contract.
+
 ### Communication Architecture
 
 The document protocol is always the durable communication layer. A real-time adapter is selected for
@@ -279,7 +343,7 @@ SHA-256. All tasks share one `release_train_id`. Rework increments a task attemp
 increments the RC number, and only scope or compatibility changes trigger reassessment of the
 project version.
 
-### Standard Workflow
+### Advanced Governance Workflow
 
 1. Read the target project and its local instructions before making changes.
 2. Confirm the objective, scope, acceptance criteria, governance mode, and concurrency limits.
@@ -350,6 +414,7 @@ first, then wait for confirmation before execution.
 multi-agent-collaboration/
 ├── SKILL.md                 # Codex 主协议 / normative skill entry
 ├── README.md                # 中英文介绍与导航 / bilingual overview
+├── agents.html              # 用户选择 Agent 并手动复制启动指令的入口
 ├── CHANGELOG.md             # 协议变更 / protocol changes
 ├── docs/                    # 当前架构说明 / current architecture
 ├── agents/
