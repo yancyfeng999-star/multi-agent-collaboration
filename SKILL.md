@@ -8,7 +8,7 @@ description: Use when a project needs an Agent role catalog or manual launch, or
 - 中文名称：多智能体协同
 - 英文名称：Multi-Agent Collaboration
 - Skill ID：`multi-agent-collaboration`
-- Skill 版本：`1.3.0`（唯一版本权威源：`VERSION`）
+- Skill 版本：`1.4.1`（唯一版本权威源：`VERSION`）
 - Protocol 版本：`3`
 - 调用方式：`$multi-agent-collaboration`
 
@@ -33,7 +33,7 @@ description: Use when a project needs an Agent role catalog or manual launch, or
 | **Protocol 版本** | `scripts/protocol_lib.py` 与协议文档 | Run、任务、事件、状态机、证据或恢复语义发生不兼容变化 |
 | **项目业务版本** | 目标项目自己的版本文件或 `version-contract` | 目标项目交付范围、兼容性或发布内容发生变化 |
 
-本 Skill 当前为 Skill `1.3.0`、Protocol `3`。更新 Skill 不会自动修改目标项目业务版本；
+本 Skill 当前为 Skill `1.4.1`、Protocol `3`。更新 Skill 不会自动修改目标项目业务版本；
 只有进入 `tracked` Run 并满足目标项目自己的版本规则时，才治理项目业务版本。发布本 Skill
 时必须同步 `VERSION`、`CHANGELOG.md`、中英文 README、`SKILL.md`、相关测试和用户入口，
 先完成验证，再推送并通过代码审查合并。
@@ -128,6 +128,18 @@ description: Use when a project needs an Agent role catalog or manual launch, or
 - `light`：研究、方案、低风险文档；保留任务、事件、结果和总结。
 - `standard`：代码修改；增加 Git、owned paths、Review、QA 和验证证据。
 - `strict`：生产、数据库、资金、权限、密钥、发布；增加变更编号、正式 handoff、registry、安全审查、人工门禁和回滚。
+
+执行配置与治理模式分开记录：
+
+| execution_profile | 适用场景 | 行为边界 |
+| --- | --- | --- |
+| `fast` | Light 或 Standard 的时效优先任务 | 单次前置检查、减少重复等待；Light 可不设 Reviewer/QA，Standard 仍保留一次合并质量交接；Strict 禁止使用 |
+| `normal` | Standard/Strict 或不确定场景 | 保留完整 Review、QA、证据、版本和人工门禁 |
+
+派发策略同样显式记录：`central` 只允许 Coordinator 派发；`hybrid` 允许 Coordinator
+和具备 `task_publish` 的工作 Agent 在父任务范围内发布；`self_service` 允许受控的工作 Agent
+发布、抢占任务和抢占线程。自助能力不是新 Agent，也不是扩大权限；每次发布仍必须写冻结任务、
+父任务 hash、事件和路径锁。
 
 模式字段、必填证据和人工门禁见 [modes-and-gates.md](references/modes-and-gates.md)。
 
@@ -336,7 +348,70 @@ python3 <skill-dir>/scripts/coordinator.py --run-dir "<run-dir>" --once
 
 协调器只自动派发 ready wave、验证冲突并报告 ACK/lease 超时；Review、QA、失败重试和 release 仍必须由真实 evidence/event 驱动，不能由协调器伪造。`--no-emit-events` 只能与 `--dry-run` 一起用于预览。
 
+快车道/自助协同时使用：
+
+```bash
+python3 <skill-dir>/scripts/freeze_scope.py --run-dir "<run-dir>" --requested-path "src" --target-environment local
+python3 <skill-dir>/scripts/preflight_run.py --run-dir "<run-dir>"
+python3 <skill-dir>/scripts/agent_dispatch.py publish --run-dir "<run-dir>" \
+  --publisher-agent "<agent>" --parent-task "TASK-PARENT" --task-id "TASK-CHILD" \
+  --title "..." --objective "..." --owner-agent "<owner>" --owned-path "src/child"
+python3 <skill-dir>/scripts/agent_claim.py claim-task --run-dir "<run-dir>" \
+  --task-id "TASK-POOL" --agent-id "<agent>"
+python3 <skill-dir>/scripts/agent_claim.py claim-thread --run-dir "<run-dir>" \
+  --task-id "TASK-POOL" --agent-id "<agent>" --thread-id "<thread>" \
+  --platform codex --session-id "<active-session>" --workspace "<project-root>"
+python3 <skill-dir>/scripts/agent_claim.py release-task --run-dir "<run-dir>" \
+  --claim-ref "<claim-path>" --agent-id "<agent>" --reason "handoff complete"
+python3 <skill-dir>/scripts/completion_preflight.py --run-dir "<run-dir>" --task-id "TASK-001"
+python3 <skill-dir>/scripts/recover_timeout.py --run-dir "<run-dir>" --task-id "TASK-001" \
+  --action block --side-effect-state unknown
+```
+
+任务池的发布参数为 `--owner-agent pool --assignment-mode claimable --eligible-agent <agent>`；
+Coordinator 不为任务池伪造 Owner。线程 claim 只绑定 thread、platform 和精确 workspace，
+不自动创建线程或显示运行状态。
+
 详细边界见 [runtime-metadata.md](references/runtime-metadata.md)、[run-memory-bridge.md](references/run-memory-bridge.md)、[project-finalization.md](references/project-finalization.md)、[agent-lifecycle.md](references/agent-lifecycle.md) 和 [coordinator-runtime.md](references/coordinator-runtime.md)。
+
+## 快车道与受控自助协同
+
+时效优先时，不把所有门禁都删掉，而是把等待压缩成一次可审计的前置检查和一次完成前检查：
+
+```text
+只读扫描 → freeze_scope → preflight_run → 执行/自助派发 → completion_preflight → 收口
+```
+
+`preflight_run.py` 一次列出任务图、范围、锁、版本和治理缺口；`completion_preflight.py` 在
+提交结果前一次列出 Owner 结果、验证、Review/QA、commit 和发布候选缺口。报告只读，不会
+伪造事件、ACK、lease、结果或发布许可。`recover_timeout.py` 对 ACK/lease 超时先记录
+`blocked_by` 与 `next_action`，检查副作用后才能决定重试或 dead-letter；不得因为快车道自动
+重投可能产生副作用的任务。
+
+### 工作 Agent 自助发布
+
+当 Run 的 `dispatch_policy` 为 `hybrid` 或 `self_service`，已登记且拥有 `task_publish` 的
+工作 Agent 可以在自己的父任务范围内执行 `agent_dispatch.py publish`。它必须：
+
+1. 声明 `parent_task`、父任务 SHA-256、发布者、Owner/任务池和 owned paths。
+2. 通过父 Owner/声明协作者、冻结范围、路径重叠和人工作业门禁检查。
+3. 在发布锁内创建不可变任务，先写 `TASK_READY`，再写 `TASK_DISPATCHED`；固定 Owner 任务
+   才会立即唤醒目标。
+4. 对任务池只写 `TASK_READY`，由具备 `task_claim` 的 eligible Agent 原子抢占后写
+   `TASK_DISPATCHED` 并唤醒自己。
+
+Coordinator 仍是 Strict 和 `central` 策略的唯一派发者，仍独占全局序号、状态 reducer、
+人工许可、重试/dead-letter、`TASK_COMPLETED` 和 `RELEASE_READY`。工作 Agent 可以缩短等待，
+但不能自授更大路径、权限、版本或发布资格。
+
+### 串行抢占与线程绑定
+
+任务抢占使用 `claims/tasks/` 与独立锁，线程抢占使用 `claims/threads/` 与独立锁；同一任务
+或同一 thread 同时只有一个未过期 claimant。抢占记录不可变，包含 eligible agents、lease、
+workspace、platform 和 parent causation。抢占失败返回持有者、过期时间、`blocked_by` 和
+下一动作，不覆盖旧记录。任务 claim 只决定本次有效 Owner，不能绕过 owned paths、forbidden
+paths、Review/QA 或 Strict 门禁。持有者可以使用 `release-task`/`release-thread` 追加不可变
+release 记录主动让出；这不会伪造完成、自动重置任务或绕过 timeout/recovery。
 
 ## 工作流
 
@@ -382,6 +457,8 @@ Agent：
 python3 <skill-dir>/scripts/init_run.py \
   --project-root "<project-root>" \
   --governance standard \
+  --execution-profile normal \
+  --dispatch-policy hybrid \
   --transport hybrid \
   --objective "<objective>" \
   --max-parallel 4 \
@@ -404,6 +481,10 @@ python3 <skill-dir>/scripts/init_run.py \
 
 并行数、文档子代理深度、ACK 超时、lease 时长和最大尝试数都必须在初始化时明确或采用
 可见默认值；初始化器拒绝零值和负值。
+
+时效优先的 Light/Standard Run 可以显式使用 `--execution-profile fast`。初始化仍保留任务、
+事件、锁、重试策略和版本判断；fast 只改变等待/交接策略，不降低路径、secret、人工高风险
+操作和不可变证据约束。Standard 仍需一次合并 Reviewer/QA 交接。
 
 协议 v1/v2 的旧 Run 不会被静默复用或自动升级；初始化器会 fail-closed。保留旧 Run
 为只读历史，并在明确迁移决策后建立新的 v3 文档总线。
@@ -443,7 +524,7 @@ Codex 原生对象分别使用
 
 ### 5. 文档先写，再调度
 
-严格使用以下顺序：
+严格使用以下顺序（固定 Owner）：
 
 1. 写任务文档。
 2. 计算任务内容 SHA-256。
@@ -452,6 +533,11 @@ Codex 原生对象分别使用
 5. 写 `TASK_DISPATCHED` 后再通过选定适配器通知目标智能体。
 
 不得先唤醒智能体再补任务文档。
+
+任务池或工作 Agent 自助发布时使用受控例外：发布者必须先持有父任务权限并在发布锁内写入
+任务与 `TASK_READY`；固定 Owner 随后可由发布者直接写 `TASK_DISPATCHED`，任务池必须等待
+eligible Agent 通过 `agent_claim.py claim-task` 抢占后再写 `TASK_DISPATCHED`。这不是绕过文档
+协议，而是把 Coordinator 的单点派发动作拆成受权限约束的原子发布动作。
 
 ### 6. Codex 原生调度
 
@@ -525,7 +611,8 @@ Release。默认最多一层委派。完整规则见
 | `DOCUMENT_SUBAGENT_RESULT_RECEIVED` | 交给父智能体审查，不直接进入 QA 或 Release |
 | `DOCUMENT_SUBAGENT_FAILED` | 通知父智能体和 Coordinator，停止该委派链 |
 
-禁止智能体自行绕过 Coordinator 直接调用下游。
+禁止智能体自行绕过 Coordinator 直接调用下游 Review、QA、Release 或高风险操作；只有上文
+规定的父任务内自助发布、任务 claim 和 thread claim 可以由工作 Agent 发起。
 
 ### 9. 可靠性和冲突控制
 
@@ -542,6 +629,8 @@ Release。默认最多一层委派。完整规则见
 - Coordinator 独占 `state.yaml`、inbox 和全局事件序号。
 - 每个智能体只写自己的 outbox。
 - 高冲突路径使用锁；锁未释放时任务保持等待。
+- 任务发布、任务 claim、thread claim 使用彼此独立的串行锁；claimable 任务的有效 Owner
+  由最新未过期 claim 解析，ACK/lease/result 必须落在该 Owner 的 outbox。
 - 写入临时文件后原子重命名。
 - ACK、result、Review、QA、人工许可和 dead letter 必须作为对应事件的 hashed payload，
   事件产生后不得原地修改。
@@ -568,6 +657,7 @@ protocol.yaml
 → tasks/
 → inbox/outbox
 → delegations/
+→ operations/
 → native/threads
 → native/operations
 → next-action.md
@@ -600,6 +690,14 @@ Review、QA、人工许可、锁、commit 或治理证据时返回失败。
 python3 <skill-dir>/scripts/manage_run.py --help
 ```
 
+候选索引和迁移只读/显式执行：
+
+```bash
+python3 <skill-dir>/scripts/build_candidate_index.py --run-dir "<run-dir>"
+python3 <skill-dir>/scripts/migrate_run_optimization.py --run-dir "<run-dir>" --dry-run
+python3 <skill-dir>/scripts/migrate_run_optimization.py --run-dir "<run-dir>" --apply
+```
+
 创建事件时优先使用：
 
 ```bash
@@ -620,6 +718,7 @@ python3 <skill-dir>/scripts/emit_event.py \
 向用户清楚报告：
 
 - 使用的 transport 和 governance。
+- execution profile（`fast`/`normal`）和 dispatch policy（`central`/`hybrid`/`self_service`）。
 - 已创建或复用的线程/通用智能体。
 - 当前任务图和状态。
 - 哪些任务自动继续，哪些等待用户或通用智能体。

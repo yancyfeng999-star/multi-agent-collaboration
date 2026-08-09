@@ -21,10 +21,17 @@
 - 禁止的路径、数据、远端和命令。
 - 必须通过的测试或人工验收。
 - `light`、`standard`、`strict`。
+- execution profile：时效优先的 `fast` 或完整证据链的 `normal`（Strict 只能 normal）。
+- dispatch policy：`central`、`hybrid` 或 `self_service`，以及哪些现有 Agent 具备
+  `task_publish`、`task_claim`、`thread_claim`。
 - 最大并行数量。
 - 是否明确授权创建 Codex 线程。
 - 是否存在通用智能体，以及由谁触发它读取文档。
 - 通用智能体是否会使用子代理，以及透明子代理还是需要正式追踪的受管子代理。
+
+工作 Agent 自助发布或抢占不等于创建线程。只要使用已有 Agent/runtime，并且任务/线程 claim
+的 workspace、路径和锁已声明，就不需要为“派发方便”额外增加 Agent；首次创建新的 Codex
+线程仍需要用户明确确认。
 
 用户没有明确授权时，不创建线程、不修改项目、不运行发布。
 
@@ -96,6 +103,9 @@ Platform、Data、UI、Security、Operations 等能力优先附加给现有智�
 
 每个任务只有一个 Owner。把跨模块需求拆成 DAG，不用“大家一起改”。
 
+任务池可以把声明 Owner 写成 `pool`，但必须列出 `eligible_agents`、共同 writable scope 和
+claim lease。claim 前任务保持 ready，claim 后才进入 claimant 的 dispatched/running 生命周期。
+
 示例：
 
 ```text
@@ -138,6 +148,9 @@ release-readiness
 - release、rollback 和生产数据操作。
 
 存在不明确的重叠时，默认串行。
+
+自助并不改变串行规则：任务发布、任务 claim、thread claim 各使用独立锁；同一 owned path、
+同一 logical resource 或同一 thread 仍不可并发。抢占只是选择唯一执行者，不是获得额外并发量。
 
 ## 6. 用户确认
 

@@ -7,7 +7,7 @@
 | 中文名称 | 多智能体协同 |
 | English Name | Multi-Agent Collaboration |
 | Skill ID | `multi-agent-collaboration` |
-| Skill Version | `1.3.0` |
+| Skill Version | `1.4.1` |
 | Protocol Version | `3` |
 | GitHub | [yancyfeng999-star/multi-agent-collaboration](https://github.com/yancyfeng999-star/multi-agent-collaboration) |
 | License | [MIT](LICENSE) |
@@ -27,7 +27,7 @@
 | [CHANGELOG.md](CHANGELOG.md) | 协议及用户可见行为变更 |
 | [docs/MERGED_STRUCTURE.md](docs/MERGED_STRUCTURE.md) | 两层架构、Agent 目录、运行资料与收口数据流 |
 
-当前 Skill 正式版本为 `1.3.0`，唯一版本权威源是 [VERSION](VERSION)；当前可写协议为
+当前 Skill 正式版本为 `1.4.1`，唯一版本权威源是 [VERSION](VERSION)；当前可写协议为
 v3。Skill 版本与协议版本独立递增。`SKILL.md` 是规范入口，根 README 用于介绍和导航；
 两者冲突时应先修正文档与实现，不以 README 放宽协议门禁。
 
@@ -35,7 +35,7 @@ v3。Skill 版本与协议版本独立递增。`SKILL.md` 是规范入口，根 
 
 | 对象 | 当前值/权威源 | 变化条件 |
 | --- | --- | --- |
-| Skill 版本 | `1.3.0` / [VERSION](VERSION) | 用户入口、文档、脚本、Schema、模板或默认行为变化 |
+| Skill 版本 | `1.4.1` / [VERSION](VERSION) | 用户入口、文档、脚本、Schema、模板或默认行为变化 |
 | Protocol 版本 | `3` / `scripts/protocol_lib.py` | Run、任务、事件、状态机、证据或恢复语义不兼容变化 |
 | 项目业务版本 | 目标项目版本文件或 `version-contract` | 目标项目交付范围、兼容性或正式发布内容变化 |
 
@@ -104,6 +104,26 @@ Run、不显示当前任务、不统计运行状态，也不自动创建线程�
 | `standard` | 常规代码修改 | 增加 owned paths、Git、Review、QA 和验证证据 |
 | `strict` | 生产、数据库、资金、权限和发布 | 增加正式审批、安全审查、回滚和发布门禁 |
 
+### 快车道与自助协同
+
+`execution_profile` 与治理模式分开：`fast` 面向 Light 或 Standard 的时效场景，`normal`
+用于 Strict 或不确定场景。fast 通过一次 `preflight_run.py` 和一次
+`completion_preflight.py` 汇总缺口，减少反复唤醒和等待；Light 可不设 Reviewer/QA，Standard
+仍保留一次合并质量交接。fast 不降低路径权限、secret 禁区、不可变事件和高风险人工门禁；
+Strict 不能使用 fast。
+
+`dispatch_policy` 有三种：
+
+- `central`：只有 Coordinator 发布和派发。
+- `hybrid`：Coordinator 与拥有 `task_publish` 的工作 Agent 都可在父任务范围内发布。
+- `self_service`：在 hybrid 基础上，eligible Agent 可用 `task_claim` 抢占任务、用
+  `thread_claim` 抢占线程；抢占完成后才绑定有效 Owner、写 `TASK_DISPATCHED` 和唤醒包。
+
+工作 Agent 的自助发布必须带父任务与 SHA-256，经过 owned/forbidden paths、冻结范围、活动
+任务冲突和发布锁检查。任务池使用 `owner_agent: pool`，由 eligible Agent 串行抢占；任务
+发布、任务 claim、thread claim 使用不同锁，不能互相覆盖。Coordinator 仍独占 Strict、
+人工许可、重试/dead-letter、`TASK_COMPLETED` 和 `RELEASE_READY`。
+
 ### 通信架构
 
 Skill 始终以文档协议作为持久化通信底座，并按执行环境选择实时适配器：
@@ -149,6 +169,14 @@ RC 编号和版本重评；普通 Owner、Reviewer 和 QA 保持原职责。只�
 6. 收集 ACK、lease、结果、Review、QA 和审批证据。
 7. 根据事件状态机调度返工、下游任务、发布整备或人工处理。
 8. 验证完成条件，生成总结并将运行记录只读归档。
+
+时效优先时按以下短路径运行：
+
+```text
+freeze_scope → preflight_run → 固定 Owner 或 Agent 自助发布/抢占 → completion_preflight → 收口
+```
+
+超时先执行 `recover_timeout.py` 检查副作用；系统不会因为等待超时就伪造失败或自动重投。
 
 ### 运行资料与项目收口
 
@@ -250,7 +278,7 @@ assurance, version contracts, and human approval gates.
 
 | Object | Current value / source of truth | Changes when |
 | --- | --- | --- |
-| Skill version | `1.3.0` / `VERSION` | The user entry, docs, scripts, schemas, templates, or default behavior changes |
+| Skill version | `1.4.1` / `VERSION` | The user entry, docs, scripts, schemas, templates, or default behavior changes |
 | Protocol version | `3` / `scripts/protocol_lib.py` | Run, task, event, state-machine, evidence, or recovery semantics change incompatibly |
 | Project business version | The target project's version source or `version-contract` | The target project's delivery scope, compatibility, or formal release changes |
 
@@ -272,6 +300,9 @@ version governance begins only inside a `tracked` Run under the target project's
 - Binds all tasks entering one deliverable to the same project version contract and release train.
 - Captures immutable Runtime Profiles and Task Attempt Activity while separating observed actual
   runtime facts from declared defaults.
+- Provides a bounded fast execution profile with one-pass dispatch/completion preflight reports.
+- Allows authorized workers to publish child tasks within a parent scope and lets eligible workers
+  atomically claim pooled tasks or native threads without adding more agents.
 
 ### Minimum Necessary Agents
 
@@ -349,7 +380,8 @@ project version.
 2. Confirm the objective, scope, acceptance criteria, governance mode, and concurrency limits.
 3. Design roles, owned paths, dependencies, and parallel batches.
 4. Initialize the `.multi-agent-collaboration/` document bus after user confirmation.
-5. Persist the task and event before notifying an executor.
+5. Persist the task and event before notifying an executor; a worker may use the controlled
+   self-service publication path only when the Run dispatch policy and capabilities allow it.
 6. Collect acknowledgements, leases, results, review, QA, and approval evidence.
 7. Route rework, downstream tasks, release preparation, or human intervention through the event
    state machine.
@@ -401,7 +433,8 @@ first, then wait for confirmation before execution.
 
 - Do not create multiple Codex tasks without explicit user confirmation.
 - Do not report a persisted task as completed execution.
-- Agents may not bypass the Coordinator to invoke downstream roles.
+- Agents may not bypass the Coordinator to invoke downstream roles; parent-scoped publication and
+  serialized task/thread claims are the only self-service exceptions.
 - A subagent may never receive broader permissions than its parent.
 - Chat claims do not replace file, Git, test, or external-system evidence.
 - This Skill does not grant production, release, deletion, or other high-risk authority.

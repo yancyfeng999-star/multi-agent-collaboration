@@ -24,6 +24,7 @@ python3 -m compileall -q scripts tests
 | 迁移与修复 | dry-run、plan hash、幂等、备份、quarantine、故障注入和回滚 |
 | 适配器 | document fallback、Hermes/Codex 显式 bridge、会话/workspace 边界和不误报唤醒 |
 | 用户入口 | `agents.html` 角色卡、最小启动表单、手动复制边界和无运行状态约束 |
+| 1.4.1 快车道与自助协同 | execution/dispatch policy、scope/preflight、工作 Agent 子任务发布、任务/线程串行 claim、超时恢复和候选索引 |
 
 ## 发布门禁
 
@@ -37,6 +38,9 @@ python3 -m compileall -q scripts tests
 6. Markdown 本地链接检查；
 7. `git diff --check`。
 
-当前 v1.3.0 本地回归为：`python -m unittest discover -s tests -p 'test_*.py'` 的 202 tests OK，
+当前 v1.4.1 的基线回归应同时覆盖原有测试与 `tests/test_optimization_features.py`；
+本次实现已用 `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -p 'test_*.py' -q`
+验证 `213 tests OK`；
+旧的 v1.3.0 本地回归为：`python -m unittest discover -s tests -p 'test_*.py'` 的 202 tests OK，
 `compileall`、顶层 CLI help、8/8 JSON Schema、HTML/JavaScript 静态检查和本地链接检查通过。
 这些数字是发布证据，不是未来版本的固定断言；测试变化后应以最新真实命令输出更新。

@@ -29,6 +29,15 @@
 | `manage_project_agents.py` | 添加、更新、暂停、恢复、退役和修复长期 Agent |
 | `migrate_project_agents.py` | 以备份、校验和回滚迁移长期存储版本 |
 | `coordinator.py` | 执行有界单 tick 的 ready-wave、超时与投递协调 |
+| `preflight_run.py` | 一次性只读检查任务图、范围、锁、治理和派发准备度 |
+| `completion_preflight.py` | 一次性只读检查 Owner 结果、验证、Review/QA、commit 和收口缺口 |
+| `freeze_scope.py` | 冻结请求路径、禁止路径和目标环境，生成不可变 scope hash |
+| `agent_dispatch.py` | 允许有 `task_publish` 的工作 Agent 在父任务范围内发布子任务 |
+| `agent_claim.py` | 串行抢占任务池或 Codex/Hermes/document thread，并绑定有效 Owner |
+| `recover_timeout.py` | 记录 ACK/lease 超时恢复决策，避免无证据自动重投 |
+| `resource_queue.py` | 为共享资源写 FIFO 请求，避免多个 Agent 同时争用高冲突资源 |
+| `build_candidate_index.py` | 只读汇总完成/发布整备候选的版本、commit 和证据事实 |
+| `migrate_run_optimization.py` | 为旧 Run 增补 1.4.0 可选字段和 retry policy，支持 dry-run/apply |
 | `wake_agent.py` | 验证身份/会话后调用适配器，失败时安全回退 document bus |
 | `runtime_metadata.py` | 按安全来源优先级探测 actual runtime metadata，并处理未知与冲突 |
 | `record_agent_runtime.py` | 原子发布不可变 Runtime Profile、哈希链、索引和当前指针 |
@@ -63,6 +72,60 @@ init_run.py
 → manage_run.py archive-run
 ```
 
+### 快车道与自助派发
+
+初始化时显式选择执行配置；`fast` 可用于 Light/Standard，`strict` 必须使用 `normal`：
+
+```bash
+python3 scripts/init_run.py --project-root "<project-root>" \
+  --governance light --execution-profile fast --dispatch-policy hybrid \
+  --transport document_bus --objective "<objective>" \
+  --versioning-mode not_applicable --versioning-reason "<reason>" --user-confirmed
+python3 scripts/freeze_scope.py --run-dir "<run-dir>" \
+  --requested-path "src" --target-environment local
+python3 scripts/preflight_run.py --run-dir "<run-dir>"
+```
+
+父任务 Owner 或声明协作者可发布固定 Owner 子任务：
+
+```bash
+python3 scripts/agent_dispatch.py publish --run-dir "<run-dir>" \
+  --publisher-agent worker --parent-task TASK-PARENT --task-id TASK-CHILD \
+  --title "Child" --objective "..." --owner-agent worker --owned-path src/child
+```
+
+任务池必须声明 `--owner-agent pool --assignment-mode claimable --eligible-agent <agent>`。
+Coordinator 或父 Agent 只写 `TASK_READY`；eligible Agent 抢到后，脚本在 task-claim 锁内
+写不可变 claim、`TASK_DISPATCHED` 和自己的唤醒包：
+
+```bash
+python3 scripts/agent_claim.py claim-task --run-dir "<run-dir>" \
+  --task-id TASK-POOL --agent-id worker
+python3 scripts/agent_claim.py claim-thread --run-dir "<run-dir>" \
+  --task-id TASK-POOL --agent-id worker --thread-id THREAD-1 \
+  --platform codex --session-id "<active-session>" --workspace "<project-root>"
+# 主动让出时追加不可变 release 记录（不会伪造完成或自动重置任务）
+python3 scripts/agent_claim.py release-task --run-dir "<run-dir>" \
+  --claim-ref "<claim-path>" --agent-id worker --reason "handoff complete"
+python3 scripts/agent_claim.py release-thread --run-dir "<run-dir>" \
+  --claim-ref "<thread-claim-path>" --agent-id worker --reason "thread released"
+```
+
+第二个抢占者不会覆盖第一个 claim，而是返回持有者、lease 到期时间、`blocked_by` 和下一
+动作。任务 claim 解析为后续 ACK/lease/result 的有效 Owner；线程 claim 只绑定 thread、
+platform 和精确 workspace。
+
+完成前和超时恢复：
+
+```bash
+python3 scripts/completion_preflight.py --run-dir "<run-dir>" --task-id TASK-001
+python3 scripts/recover_timeout.py --run-dir "<run-dir>" --task-id TASK-001 \
+  --action block --side-effect-state unknown
+python3 scripts/build_candidate_index.py --run-dir "<run-dir>"
+```
+
+这些脚本默认只读或写不可变证据，不自动制造 ACK、result、Review、QA、重试或发布许可。
+
 ### 版本化发布
 
 ```text
@@ -92,12 +155,27 @@ python3 scripts/finalize_project.py --help
 python3 scripts/manage_project_agents.py --help
 python3 scripts/migrate_project_agents.py --help
 python3 scripts/coordinator.py --help
+python3 scripts/preflight_run.py --help
+python3 scripts/completion_preflight.py --help
+python3 scripts/freeze_scope.py --help
+python3 scripts/agent_dispatch.py --help
+python3 scripts/agent_claim.py --help
+python3 scripts/recover_timeout.py --help
+python3 scripts/resource_queue.py --help
+python3 scripts/build_candidate_index.py --help
+python3 scripts/migrate_run_optimization.py --help
 python3 scripts/wake_agent.py --help
 python3 scripts/runtime_metadata.py --help
 python3 scripts/record_agent_runtime.py --help
 python3 scripts/record_agent_activity.py --help
 python3 scripts/migrate_agent_runtime.py --help
 ```
+
+资源步骤在任务的 `resource_steps` 中声明 `step_id`、资源集合和可选 `queue_key`。调用
+`resource_queue.py request` 时可以省略 `--queue-key`，脚本会按资源集合从任务声明推断；
+真正取得 bundle 仍须用 `manage_run.py lock acquire --step-id ... --queue-key ...` 按 FIFO
+校验；成功后会在 `locks/queue/grants/` 留下绑定 request/lock 的 grant 事实，不能只写入
+排队请求就视为已获得资源。
 
 `bind_session.py` 的 model/provider 必须来自本次运行的实际证据。默认配置只能作为 declared
 policy；如果 actual 缺失或冲突，命令返回 `RUNTIME_METADATA_REQUIRED`，不会留下孤立 Runtime

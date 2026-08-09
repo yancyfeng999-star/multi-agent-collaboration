@@ -1,4 +1,4 @@
 interface:
   display_name: "多智能体协同 | Multi-Agent Collaboration"
-  short_description: "先从 Agent 角色目录手动启动，按需切换 Protocol v3 高级协同治理"
-  default_prompt: "使用 $multi-agent-collaboration 先打开 Agent 目录并人工选择一个角色；只在明确需要并行、交接、审计或高风险控制时启用 Protocol v3。"
+  short_description: "多智能体协同 1.4.1：快车道、受控自助派发与串行任务/线程抢占"
+  default_prompt: "使用 $multi-agent-collaboration 先打开 Agent 目录并人工选择一个角色；按项目风险选择 fast/normal 与 central/hybrid/self_service，必要时用一次 preflight 和受控任务/线程 claim，不能绕过范围、证据或人工门禁。"

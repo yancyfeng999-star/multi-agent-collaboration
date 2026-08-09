@@ -20,6 +20,7 @@ def dispatch(run_dir: Path, operation: dict[str, Any], *, dry_run: bool = False)
         "workspace": operation["workspace"],
         "task_path": operation["task_path"],
         "task_sha256": operation["task_sha256"],
+        "claim_id": operation.get("claim_id"),
         "owned_paths": operation["owned_paths"],
         "forbidden_paths": operation["forbidden_paths"],
         "instruction": (
@@ -38,4 +39,4 @@ def dispatch(run_dir: Path, operation: dict[str, Any], *, dry_run: bool = False)
         temporary = target.with_name(f".{target.name}.{os.getpid()}.tmp")
         temporary.write_text(encoded, encoding="utf-8")
         os.replace(temporary, target)
-    return {"adapter": "document", "status": "document_dispatched", "package_path": str(target)}
+    return {"adapter": "document", "status": "message_sent", "delivery_status": "message_sent", "package_path": str(target)}

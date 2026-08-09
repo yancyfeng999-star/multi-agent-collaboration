@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from protocol_lib import event_records, frontmatter, json_string_list, parse_agent_profiles, paths_overlap, replay_task_states, scalar_map
+from preflight_lib import run_preflight
 from wake_agent import wake_agent
 
 ACTIVE = {"dispatched", "acknowledged", "running", "handoff_ready", "reviewing", "qa_running", "release_ready"}
@@ -68,12 +69,20 @@ def _timeouts(run_dir: Path, manifest: dict[str, str], records: list[tuple[Path,
                         attempts = max(attempts, int(values.get("attempt_id", "ATTEMPT-001").rsplit("-", 1)[-1]))
         if reason:
             recommendation = "dead_letter" if attempts >= int(manifest["max_attempts"]) else "retry"
-            advice.append({"task_id": task_id, "reason": reason, "attempts": attempts, "recommendation": recommendation, "safe_cli": "write-dead-letter requires a real failure event; coordinator does not fabricate one"})
+            advice.append({
+                "task_id": task_id,
+                "reason": reason,
+                "attempts": attempts,
+                "recommendation": recommendation,
+                "blocked_by": reason,
+                "next_action": "inspect_side_effects_then_recover_timeout",
+                "safe_cli": "write-dead-letter requires a real failure event; coordinator does not fabricate one",
+            })
     return advice
 
 
-def _emit(run_dir: Path, task_id: str, event: str, owner: str, task_path: Path) -> None:
-    command = ["python3", str(Path(__file__).with_name("emit_event.py")), "--run-dir", str(run_dir), "--task-id", task_id, "--event", event, "--from-agent", "coordinator", "--to-agent", owner, "--summary", f"coordinator {event.lower()}", "--payload-file", str(task_path), "--idempotency-key", f"coordinator:{task_id}:{event}:v1"]
+def _emit(run_dir: Path, task_id: str, event: str, target: str, task_path: Path) -> None:
+    command = ["python3", str(Path(__file__).with_name("emit_event.py")), "--run-dir", str(run_dir), "--task-id", task_id, "--event", event, "--from-agent", "coordinator", "--to-agent", target, "--summary", f"coordinator {event.lower()}", "--payload-file", str(task_path), "--idempotency-key", f"coordinator:{task_id}:{event}:v1"]
     result = subprocess.run(command, capture_output=True, text=True)
     if result.returncode:
         raise RuntimeError(result.stderr.strip() or result.stdout.strip())
@@ -92,6 +101,24 @@ def tick(run_dir: str | Path, *, dry_run: bool = False, emit_events: bool = True
     states, errors = replay_task_states(records, manifest.get("governance", ""))
     if errors:
         raise ValueError("invalid event history: " + "; ".join(errors))
+    preflight_report: dict[str, Any] | None = None
+    # Non-central runs must pass the complete read-only preflight before any
+    # dispatch.  Do not short-circuit on a missing scope file: the preflight
+    # itself must report that gap and keep the coordinator from waking agents.
+    if manifest.get("preflight_required") == "true" and manifest.get("dispatch_policy", "central") != "central":
+        preflight_report = run_preflight(run_dir)
+        if not preflight_report.get("ready"):
+            return {
+                "run_id": manifest["run_id"],
+                "bounded": True,
+                "dry_run": dry_run,
+                "ready_set": [],
+                "dispatches": [],
+                "blocked_conflicts": [],
+                "timeouts": [],
+                "preflight": preflight_report,
+                "reason": "preflight_blocked",
+            }
     tasks: dict[str, tuple[Path, dict[str, str]]] = {}
     for path in sorted((run_dir / "tasks").glob("*.md")):
         values = frontmatter(path); tasks[values["task_id"]] = (path, values)
@@ -126,12 +153,22 @@ def tick(run_dir: str | Path, *, dry_run: bool = False, emit_events: bool = True
     dispatches = []
     for task_id in selected:
         task_path, task = tasks[task_id]; owner = task["owner_agent"]
+        if task.get("assignment_mode", "fixed") == "claimable":
+            if emit_events and task_id not in states and not dry_run:
+                _emit(run_dir, task_id, "TASK_READY", "coordinator", task_path)
+            dispatches.append({
+                "task_id": task_id,
+                "agent_id": "pool",
+                "status": "awaiting_claim",
+                "next_action": "eligible_agent_claim_task",
+            })
+            continue
         result = wake_agent(run_dir, task_id, owner, dry_run=dry_run)
         if emit_events and task_id not in states and not dry_run:
             _emit(run_dir, task_id, "TASK_READY", owner, task_path)
             _emit(run_dir, task_id, "TASK_DISPATCHED", owner, task_path)
         dispatches.append({"task_id": task_id, "agent_id": owner, **result})
-    return {"run_id": manifest["run_id"], "bounded": True, "dry_run": dry_run, "ready_set": candidates, "dispatches": dispatches, "blocked_conflicts": blocked, "timeouts": _timeouts(run_dir, manifest, records, states, now)}
+    return {"run_id": manifest["run_id"], "bounded": True, "dry_run": dry_run, "ready_set": candidates, "dispatches": dispatches, "blocked_conflicts": blocked, "timeouts": _timeouts(run_dir, manifest, records, states, now), "preflight": preflight_report}
 
 
 def main() -> int:

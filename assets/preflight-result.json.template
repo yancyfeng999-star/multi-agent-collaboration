@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "run_id": "<run-id>",
+  "task_ids": ["TASK-001"],
+  "governance": "<light|standard|strict>",
+  "execution_profile": "<fast|normal>",
+  "dispatch_policy": "<central|hybrid|self_service>",
+  "ready": false,
+  "missing": [],
+  "conflicts": [],
+  "blocked_by": [],
+  "required_actions": ["resolve_preflight"],
+  "estimated_handoffs": 0,
+  "next_action": "resolve_preflight",
+  "checked_at": "<iso8601>"
+}

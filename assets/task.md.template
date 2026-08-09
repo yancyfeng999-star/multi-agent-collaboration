@@ -5,6 +5,11 @@ task_id: "TASK-001"
 title: "<task-title>"
 status: "draft"
 owner_agent: "<agent-id>"
+assignment_mode: "fixed"
+eligible_agents: []
+published_by: "coordinator"
+parent_task_id: null
+parent_task_sha256: null
 reviewer_agent: "<agent-id-or-null>"
 qa_agent: "<agent-id-or-null>"
 release_agent: "<agent-id-or-null>"
@@ -14,6 +19,7 @@ version_contract_sha256: "<sha256>"
 dependencies: []
 owned_paths: []
 forbidden_paths: []
+resource_steps: []
 risk_flags: []
 human_gates: []
 human_gate_hashes: {}

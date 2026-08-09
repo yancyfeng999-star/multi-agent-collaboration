@@ -3,6 +3,9 @@ run_id: "<run-id>"
 objective: "<objective>"
 status: "initializing"
 governance: "<light|standard|strict>"
+execution_profile: "normal"
+dispatch_policy: "central"
+preflight_required: true
 transport: "<codex_native|document_bus|hybrid>"
 max_parallel: 1
 max_document_delegation_depth: 1
@@ -19,6 +22,11 @@ baseline_version: "<baseline-version-or-null>"
 target_version: "<target-version-or-null>"
 version_contract_ref: "<absolute-run-local-version-contract-path>"
 version_contract_ref_sha256: "<sha256>"
+retry_policy_ref: "<run-dir>/config/retry-policy.yaml"
+retry_policy_ref_sha256: "<sha256>"
+scope_freeze_ref: null
+scope_freeze_ref_sha256: null
+self_service_parent_scope: "task_owner_or_declared_collaborator"
 release_candidates: []
 change_id: null
 registry_ref: null

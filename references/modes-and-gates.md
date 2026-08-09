@@ -1,5 +1,26 @@
 # 治理模式和人工门禁
 
+## 0. 执行配置与派发策略
+
+治理模式决定证据和人工门禁；执行配置决定等待和交接策略，二者不能互相替代：
+
+| 字段 | 值 | 规则 |
+| --- | --- | --- |
+| `execution_profile` | `fast` | Light/Standard；一次 dispatch preflight + 一次 completion preflight；Light 可不设 Reviewer/QA，Standard 仍需一次合并质量交接 |
+| `execution_profile` | `normal` | Standard/Strict 默认；保留完整质量、版本和收口链 |
+| `dispatch_policy` | `central` | 只有 Coordinator 可写 TASK_READY/TASK_DISPATCHED |
+| `dispatch_policy` | `hybrid` | 授权工作 Agent 可在父任务范围内发布；任务 claim 可用 |
+| `dispatch_policy` | `self_service` | 允许父任务内发布、任务池 claim 和 thread claim |
+
+`fast` 不改变 owned/forbidden paths、secret 禁区、不可变文档、真实验证或高风险人工门禁；
+Strict 与 `fast` 组合直接拒绝。
+
+### 快车道门禁
+
+派发前运行 `preflight_run.py`，一次性列出任务图、scope freeze、活动锁、路径冲突和适用
+治理证据。完成前运行 `completion_preflight.py`，一次性列出 result、验证、Review/QA、
+commit、handoff 和候选版本缺口。两个脚本只读，不写事件、不唤醒 Agent、不授予发布许可。
+
 ## 1. Light
 
 适用：
@@ -20,6 +41,10 @@
 
 - Git commit。
 - Review 和 QA。
+
+`light + fast` 可以省略下游质量交接，但不能省略任务、事件、result、hash、范围冻结和真实
+完成检查。`standard + fast` 仍必须完成独立于 Owner 的一次 Reviewer/QA 合并质量交接，只是
+通过一次性 preflight 减少重复等待。
 
 ## 2. Standard
 
@@ -44,6 +69,9 @@
 - result 的 verification 必须为 passed。
 - result 必须记录 implementation commit 或明确未提交原因。
 - 风险、回滚和验证引用必须写入不可变 result/evidence。
+
+Standard 可以使用 `hybrid`/`self_service` 缩短派发等待，但工作 Agent 只能发布父任务范围内
+的子任务；Review、QA、TASK_COMPLETED 和 RELEASE_READY 仍按 Coordinator 事件门禁执行。
 
 ## 3. Strict
 
@@ -106,7 +134,25 @@
 受管子代理继承当前 run 的治理模式，不能通过委派从 Strict 降为 Standard 或 Light，也
 不能继承父智能体的生产凭据和人工许可。
 
-## 5. 发布门禁
+## 5. 自助发布、任务抢占和线程抢占
+
+自助能力不是新增 Agent，也不是 Coordinator 权限下放：
+
+- `task_publish`：工作 Agent 只能以自己的父任务、父 hash、协作者声明和冻结 scope 为边界
+  发布；发布锁保证任务文档、TASK_READY 和固定 Owner 的 TASK_DISPATCHED 不被交错。
+- `task_claim`：任务必须是 `owner_agent: pool`，并列出唯一 `eligible_agents`；抢占锁保证
+  同一 task 同时只有一个未过期 claimant。claim 后有效 Owner 解析到 claimant，ACK/lease/result
+  必须写入 claimant outbox。
+- `thread_claim`：同一 thread id 使用独立锁和不可变 lease；platform、session 线索和精确
+  workspace 必须匹配，不能把一个线程同时绑定给两个 Agent。
+
+第二个 claimant 不覆盖旧 claim，而是得到 `blocked_by`、持有者和下一动作。claim 到期不等于
+任务失败；仍需检查副作用并通过 `recover_timeout.py` 决定 block、重新 claim 或人工处理。
+
+Coordinator 仍独占 Strict/central 派发、全局状态序号、人工许可、重试/dead-letter、完成和
+发布事件。
+
+## 6. 发布门禁
 
 Release 只能接受：
 

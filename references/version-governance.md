@@ -1,5 +1,16 @@
 # 集中式项目版本治理
 
+## 0. Skill 与 Protocol 版本边界
+
+本次优化把 Skill 版本更新为 `1.4.1`（权威源：根目录 `VERSION`），Protocol 仍为 `3`。
+`1.4.0` 引入执行 profile、派发策略、preflight、范围冻结、任务/线程 claim、超时恢复和
+候选索引；它兼容旧的固定 Owner v3 Run。旧 Run 不会被原地改写，只有显式运行
+`migrate_run_optimization.py --apply` 才补充缺失的可选字段和 retry policy，并保留原有事件
+与任务 hash。迁移不改变目标项目业务版本，也不授予发布权限。
+
+运行时的项目版本继续由 Coordinator 集中治理；`fast`、self-service、claim 或 retry attempt
+都不能直接递增项目版本。只有交付范围、兼容性或项目自身版本规则触发时，才建立新的版本合同。
+
 ## 1. 目标
 
 项目版本是多个 Agent 共同进入同一交付物时的治理边界。它不等同于协议版本、Run、
@@ -12,6 +23,9 @@
 - Reviewer / QA：按原职责验证，不承担版本管理；两项职责默认由同一个独立质量智能体
   承担。
 - Release：仅在已有发布任务时写入最终版本并执行发布；不为版本治理额外创建角色。
+
+自助发布的工作 Agent 可以提出或完成版本相关子任务，但不能修改版本合同、编号 RC 或写入
+正式项目版本；这些动作仍由 Coordinator/既有 Release 角色执行。
 
 ## 2. 何时启用
 

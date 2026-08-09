@@ -22,6 +22,9 @@
 | `ack.yaml.template` | 当前 attempt 的接收确认 |
 | `lease.yaml.template` | 执行租约及续约 |
 | `lock.yaml.template` | 路径或逻辑资源锁 |
+| `claims/tasks/` | 任务池的不可变 task claim/release（由 `agent_claim.py` 写入） |
+| `claims/threads/` | thread 的不可变 claim/release，绑定 platform、session 线索和 workspace |
+| `config/retry-policy.yaml` | fast/normal 的超时、重试、side-effect 和不可变事件策略 |
 | `dead-letter.yaml.template` | 重试耗尽后的失败记录 |
 | `evidence.yaml.template` | Review、QA、安全、发布或验证证据 |
 | `human-gate.yaml.template` | 用户批准、拒绝或待决门禁 |
@@ -70,6 +73,12 @@
 | `templates/project/DECISIONS.md` | 决策记录 |
 | `templates/project/PROJECT_CHECKPOINT.md` | 项目级不可变检查点 |
 
+## 输出模板（新增）
+
+| 模板 | 用途 |
+| --- | --- |
+| `preflight-result.json.template` | dispatch/completion 一次性只读缺口报告示例 |
+
 ## Schema 定义（新增）
 
 | Schema | 用途 |
@@ -82,6 +91,8 @@
 | `schemas/agent-profile.schema.json` | 长期 Agent Profile Schema（含无运行状态的目录投影） |
 | `schemas/runtime-profile.schema.json` | 单次 Session 不可变 Runtime Profile Schema |
 | `schemas/agent-activity.schema.json` | Task Attempt Activity 与真实 usage 引用 Schema |
+| `schemas/preflight-result.schema.json` | dispatch/completion 只读缺口报告 Schema |
+| `schemas/candidate-summary.schema.json` | 完成/发布整备候选索引 Schema |
 
 模板中的 `<placeholder>` 不是有效运行数据。不要复制模板后声称任务、审批、验证或发布已经
 发生。

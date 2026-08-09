@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 from project_memory_lib import exclusive_lock
+from claim_lib import effective_owner
 import json
 import os
 import re
@@ -47,6 +48,11 @@ RUN_CONFIG_FIELDS = {
     "release_environment",
     "release_authorization_ref",
     "clean_worktree_ref",
+    "execution_profile",
+    "dispatch_policy",
+    "preflight_required",
+    "scope_freeze_ref",
+    "retry_policy_ref",
 }
 
 
@@ -81,6 +87,7 @@ def parse_args() -> argparse.Namespace:
     add_agent.add_argument("--writable-path", action="append", default=[])
     add_agent.add_argument("--forbidden-path", action="append", default=[])
     add_agent.add_argument("--handoff-to")
+    add_agent.add_argument("--capability", action="append", default=[])
 
     create_task = subparsers.add_parser("create-task", help="Freeze one draft task")
     add_common_run_argument(create_task)
@@ -98,6 +105,20 @@ def parse_args() -> argparse.Namespace:
     create_task.add_argument("--human-gate", action="append", default=[])
     create_task.add_argument("--acceptance", action="append", default=[])
     create_task.add_argument("--verification", action="append", default=[])
+    create_task.add_argument(
+        "--resource-step",
+        action="append",
+        default=[],
+        help="JSON object describing one resource step, e.g. '{\"step_id\":\"lock\",\"resources\":[\"logical:x\"],\"required\":true}'",
+    )
+    create_task.add_argument(
+        "--assignment-mode",
+        choices=("fixed", "claimable"),
+        default="fixed",
+    )
+    create_task.add_argument("--eligible-agent", action="append", default=[])
+    create_task.add_argument("--published-by")
+    create_task.add_argument("--parent-task")
 
     gate = subparsers.add_parser("record-gate", help="Record a human gate decision")
     add_common_run_argument(gate)
@@ -220,6 +241,8 @@ def parse_args() -> argparse.Namespace:
     lock.add_argument("--task-id")
     lock.add_argument("--agent-id")
     lock.add_argument("--resource")
+    lock.add_argument("--step-id")
+    lock.add_argument("--queue-key")
     lock.add_argument("--lease-seconds", type=int, default=1800)
 
     rebuild = subparsers.add_parser("rebuild-state", help="Replay events into state.yaml")
@@ -422,6 +445,7 @@ def render_agent_block(args: argparse.Namespace, project_root: Path) -> str:
             *([f"      - {quote(path)}" for path in writable] or ["      - null"]),
             "    forbidden_paths:",
             *([f"      - {quote(path)}" for path in args.forbidden_path] or ["      - null"]),
+            f"    capabilities: {json.dumps(sorted(set(args.capability)), ensure_ascii=False)}",
             "    thread_id: null",
             f"    inbox: {quote(f'inbox/{args.agent_id}')}",
             f"    outbox: {quote(f'outbox/{args.agent_id}')}",
@@ -515,8 +539,25 @@ def command_create_task(args: argparse.Namespace) -> None:
     run_dir, manifest_path, manifest, project_path, agents = load_run(args.run_dir)
     contract_path, _ = load_version_contract(run_dir, manifest)
     safe_identifier(args.task_id, "task id")
-    if args.owner_agent not in agents:
+    if args.assignment_mode == "fixed" and args.owner_agent not in agents:
         raise SystemExit(f"owner is not registered: {args.owner_agent}")
+    if args.assignment_mode == "claimable" and args.owner_agent != "pool":
+        raise SystemExit("claimable tasks must use owner-agent pool")
+    published_by = args.published_by or "coordinator"
+    if published_by not in agents:
+        raise SystemExit(f"publisher is not registered: {published_by}")
+    if args.assignment_mode == "claimable" and not args.eligible_agent:
+        raise SystemExit("claimable tasks require at least one eligible-agent")
+    if len(args.eligible_agent) != len(set(args.eligible_agent)):
+        raise SystemExit("eligible-agent values must be unique")
+    for eligible in args.eligible_agent:
+        if eligible not in agents:
+            raise SystemExit(f"eligible agent is not registered: {eligible}")
+    parent_path: Path | None = None
+    parent_hash = "null"
+    if args.parent_task:
+        parent_path = task_path_for(run_dir, args.parent_task)
+        parent_hash = sha256(parent_path)
     for role in (args.reviewer_agent, args.qa_agent, args.release_agent):
         if role and role not in agents:
             raise SystemExit(f"task role is not registered: {role}")
@@ -537,30 +578,61 @@ def command_create_task(args: argparse.Namespace) -> None:
     ):
         if len(items) != len(set(items)):
             raise SystemExit(f"{field} values must be unique")
+    resource_steps: list[dict[str, object]] = []
+    for raw_step in args.resource_step:
+        try:
+            parsed_step = json.loads(raw_step)
+        except json.JSONDecodeError as exc:
+            raise SystemExit("resource-step must be an inline JSON object") from exc
+        if not isinstance(parsed_step, dict) or not isinstance(parsed_step.get("step_id"), str):
+            raise SystemExit("resource-step requires a string step_id")
+        resources = parsed_step.get("resources", [])
+        if not isinstance(resources, list) or not all(isinstance(item, str) and item for item in resources):
+            raise SystemExit("resource-step resources must be a non-empty string list")
+        if parsed_step["step_id"] in {str(item.get("step_id")) for item in resource_steps}:
+            raise SystemExit("resource-step step_id values must be unique")
+        parsed_step["resources"] = sorted(set(resources))
+        parsed_step["required"] = bool(parsed_step.get("required", True))
+        resource_steps.append(parsed_step)
     for dependency in args.dependency:
         if dependency not in existing_tasks:
             raise SystemExit(f"dependency must already exist: {dependency}")
     project_root, allowed_roots = project_context(project_path)
-    owner = agents[args.owner_agent]
+    owner = agents.get(args.owner_agent, {"writable_paths": [], "forbidden_paths": []})
+    eligible_profiles = [agents[item] for item in args.eligible_agent if item in agents]
     effective_forbidden = list(args.forbidden_path)
     for path in owner.get("forbidden_paths", []):
         if not path_within(str(path), effective_forbidden, project_root):
             effective_forbidden.append(str(path))
+    if args.assignment_mode == "claimable":
+        for eligible_profile in eligible_profiles:
+            for path in eligible_profile.get("forbidden_paths", []):
+                if not path_within(str(path), effective_forbidden, project_root):
+                    effective_forbidden.append(str(path))
     for forbidden_path in effective_forbidden:
         if not path_within(forbidden_path, allowed_roots, project_root):
             raise SystemExit(
                 f"forbidden path exceeds project allowed_roots: {forbidden_path}"
             )
     for owned_path in args.owned_path:
-        if not path_within(
-            owned_path,
-            [str(item) for item in owner.get("writable_paths", [])],
-            project_root,
-        ):
-            raise SystemExit(f"owned path exceeds owner writable scope: {owned_path}")
+        if args.assignment_mode == "fixed":
+            writable_scopes = [str(item) for item in owner.get("writable_paths", [])]
+            if not path_within(owned_path, writable_scopes, project_root):
+                raise SystemExit(f"owned path exceeds owner writable scope: {owned_path}")
+        else:
+            writable_scopes = [
+                str(scope)
+                for profile in eligible_profiles
+                for scope in profile.get("writable_paths", [])
+            ]
+            if not writable_scopes or any(
+                not path_within(owned_path, [str(scope) for scope in profile.get("writable_paths", [])], project_root)
+                for profile in eligible_profiles
+            ):
+                raise SystemExit("claimable owned paths must be writable by every eligible agent")
         if path_within(
             owned_path,
-            [str(item) for item in owner.get("forbidden_paths", [])],
+            [str(item) for item in effective_forbidden],
             project_root,
         ):
             raise SystemExit(f"owned path is forbidden for owner: {owned_path}")
@@ -603,6 +675,11 @@ def command_create_task(args: argparse.Namespace) -> None:
             f"title: {quote(args.title)}",
             'status: "draft"',
             f"owner_agent: {quote(args.owner_agent)}",
+            f"assignment_mode: {quote(args.assignment_mode)}",
+            f"eligible_agents: {json.dumps(args.eligible_agent, ensure_ascii=False)}",
+            f"published_by: {quote(published_by)}",
+            f"parent_task_id: {quote(args.parent_task) if args.parent_task else 'null'}",
+            f"parent_task_sha256: {quote(parent_hash)}",
             f"reviewer_agent: {quote(args.reviewer_agent) if args.reviewer_agent else 'null'}",
             f"qa_agent: {quote(args.qa_agent) if args.qa_agent else 'null'}",
             f"release_agent: {quote(args.release_agent) if args.release_agent else 'null'}",
@@ -612,6 +689,7 @@ def command_create_task(args: argparse.Namespace) -> None:
             f"dependencies: {json.dumps(args.dependency, ensure_ascii=False)}",
             f"owned_paths: {json.dumps(args.owned_path, ensure_ascii=False)}",
             f"forbidden_paths: {json.dumps(effective_forbidden, ensure_ascii=False)}",
+            f"resource_steps: {json.dumps(resource_steps, ensure_ascii=False, sort_keys=True)}",
             f"risk_flags: {json.dumps(args.risk_flag, ensure_ascii=False)}",
             f"human_gates: {json.dumps(args.human_gate, ensure_ascii=False)}",
             f"human_gate_hashes: {json.dumps(human_gate_hashes, ensure_ascii=False, sort_keys=True)}",
@@ -831,7 +909,7 @@ def command_write_ack(args: argparse.Namespace) -> None:
     run_dir, _, manifest, _, agents = load_run(args.run_dir)
     task_path = task_path_for(run_dir, args.task_id)
     task = frontmatter(task_path)
-    if task.get("owner_agent") != args.agent_id or args.agent_id not in agents:
+    if effective_owner(run_dir, task) != args.agent_id or args.agent_id not in agents:
         raise SystemExit("ACK agent must be the registered task owner")
     lease_seconds = args.lease_seconds or int(manifest["lease_seconds"])
     acknowledged_at = datetime.now().astimezone()
@@ -872,7 +950,7 @@ def command_write_lease(args: argparse.Namespace) -> None:
     safe_identifier(args.attempt_id, "attempt id")
     task_path = task_path_for(run_dir, args.task_id)
     task = frontmatter(task_path)
-    if task.get("owner_agent") != args.agent_id or args.agent_id not in agents:
+    if effective_owner(run_dir, task) != args.agent_id or args.agent_id not in agents:
         raise SystemExit("lease agent must be the registered task owner")
     lease_seconds = args.lease_seconds or int(manifest["lease_seconds"])
     acquired_at = datetime.now().astimezone()
@@ -910,7 +988,7 @@ def command_write_result(args: argparse.Namespace) -> None:
     run_dir, _, manifest, _, agents = load_run(args.run_dir)
     task_path = task_path_for(run_dir, args.task_id)
     task = frontmatter(task_path)
-    if task.get("owner_agent") != args.agent_id or args.agent_id not in agents:
+    if effective_owner(run_dir, task) != args.agent_id or args.agent_id not in agents:
         raise SystemExit("result agent must be the registered task owner")
     if args.implementation_commit and args.uncommitted_reason:
         raise SystemExit("choose implementation_commit or uncommitted_reason, not both")
@@ -1056,8 +1134,34 @@ def command_lock(args: argparse.Namespace) -> None:
         if not args.task_id or not args.agent_id or not args.resource:
             raise SystemExit("acquire requires --task-id, --agent-id, and --resource")
         task = frontmatter(task_path_for(run_dir, args.task_id))
-        if task.get("owner_agent") != args.agent_id or args.agent_id not in agents:
+        if effective_owner(run_dir, task) != args.agent_id or args.agent_id not in agents:
             raise SystemExit("lock owner must be the task owner")
+        if args.queue_key:
+            safe_identifier(args.queue_key, "queue key")
+            if not args.step_id:
+                raise SystemExit("--queue-key requires --step-id")
+            queue_dir = run_dir / "locks" / "queue"
+            queued: list[tuple[datetime, str, dict[str, str]]] = []
+            for request_path in sorted(queue_dir.glob("*.yaml")) if queue_dir.is_dir() else []:
+                try:
+                    request_values = scalar_map(request_path.read_text(encoding="utf-8"), source=str(request_path))
+                    created = datetime.fromisoformat(request_values["created_at"].replace("Z", "+00:00"))
+                except (OSError, KeyError, ValueError, ProtocolError):
+                    continue
+                grant_path = queue_dir / "grants" / f"{request_values.get('request_id', request_path.stem)}.yaml"
+                if request_values.get("status") == "queued" and request_values.get("queue_key") == args.queue_key and not grant_path.is_file():
+                    queued.append((created, request_values.get("request_id", request_path.name), request_values))
+            queued.sort(key=lambda item: (item[0], item[1]))
+            if not queued:
+                raise SystemExit("queue grant requires an existing queued request")
+            first = queued[0][2]
+            if (first.get("task_id"), first.get("agent_id"), first.get("step_id")) != (args.task_id, args.agent_id, args.step_id):
+                raise SystemExit("wait_for_queue_grant: another request owns the FIFO head")
+            request_id = first.get("request_id", "")
+            if not request_id:
+                raise SystemExit("queue request is missing request_id")
+        if args.step_id:
+            safe_identifier(args.step_id, "step id")
         project_root, _ = project_context(project_path)
         owned_paths = json_string_list(
             task.get("owned_paths", "[]"),
@@ -1089,12 +1193,40 @@ def command_lock(args: argparse.Namespace) -> None:
                     f"resource: {quote(args.resource)}",
                     f"owner_task: {quote(args.task_id)}",
                     f"owner_agent: {quote(args.agent_id)}",
+                    f"step_id: {quote(args.step_id) if args.step_id else 'null'}",
+                    f"queue_key: {quote(args.queue_key) if args.queue_key else 'null'}",
+                    'status: "active"',
                     f"acquired_at: {quote(acquired.isoformat(timespec='seconds'))}",
                     f"lease_expires_at: {quote(expires.isoformat(timespec='seconds'))}",
                     "",
                 )
             ),
         )
+        if args.queue_key:
+            grant_dir = run_dir / "locks" / "queue" / "grants"
+            grant_path = grant_dir / f"{request_id}.yaml"
+            grant_dir.mkdir(parents=True, exist_ok=True)
+            if grant_path.exists():
+                raise SystemExit(f"queue grant already exists: {grant_path}")
+            atomic_write(
+                grant_path,
+                "\n".join(
+                    (
+                        f"protocol_version: {PROTOCOL_VERSION}",
+                        'kind: "resource_grant"',
+                        f"run_id: {quote(manifest['run_id'])}",
+                        f"request_id: {quote(request_id)}",
+                        f"task_id: {quote(args.task_id)}",
+                        f"agent_id: {quote(args.agent_id)}",
+                        f"step_id: {quote(args.step_id)}",
+                        f"queue_key: {quote(args.queue_key)}",
+                        f"lock_id: {quote(args.lock_id)}",
+                        f"granted_at: {quote(acquired.isoformat(timespec='seconds'))}",
+                        'status: "granted"',
+                        "",
+                    )
+                ),
+            )
     elif args.action == "renew":
         if not path.is_file():
             raise SystemExit(f"lock does not exist: {path}")

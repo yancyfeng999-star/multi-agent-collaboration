@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from adapters import codex, document, hermes
+from claim_lib import active_task_claim, effective_owner
 from protocol_lib import frontmatter, parse_agent_profiles, path_within, scalar_map, sha256
 
 
@@ -57,7 +58,8 @@ def wake_agent(
     agents = parse_agent_profiles((run_dir / "agents.yaml").read_text(encoding="utf-8"), source="agents")
     task_path = run_dir / "tasks" / f"{task_id}.md"
     task = frontmatter(task_path)
-    if task.get("owner_agent") != agent_id or agent_id not in agents:
+    resolved_owner = effective_owner(run_dir, task)
+    if resolved_owner != agent_id or agent_id not in agents:
         raise ValueError("wake identity is not the registered task owner")
     workspace, allowed_roots = _load_project(run_dir)
     if not workspace.is_dir():
@@ -73,6 +75,7 @@ def wake_agent(
         if session_map is not None:
             _validate_mapping(Path(session_map), agent_id, workspace, adapter)
     task_hash = sha256(task_path)
+    claim = active_task_claim(run_dir, task_id)
     operation = {
         "protocol_version": 3,
         "kind": "wake_operation",
@@ -81,6 +84,7 @@ def wake_agent(
         "adapter": adapter, "workspace": str(workspace), "task_path": str(task_path),
         "task_sha256": task_hash, "owned_paths": json.loads(task.get("owned_paths", "[]")),
         "forbidden_paths": json.loads(task.get("forbidden_paths", "[]")),
+        "claim_id": claim.get("claim_id") if claim else None,
         "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
     }
     operation_path = run_dir / "operations" / f'{operation["operation_id"]}.json'
@@ -96,19 +100,25 @@ def wake_agent(
         temporary.write_text(json.dumps(operation, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         os.replace(temporary, operation_path)
 
-    if adapter == "document":
-        result = document.dispatch(run_dir, operation, dry_run=dry_run)
-    elif adapter == "hermes":
-        result = hermes.dispatch(operation, hermes_command)
-    elif adapter == "codex":
-        result = codex.dispatch(operation, codex_command)
-    else:
-        result = {"adapter": adapter, "status": "unsupported", "reason": "unknown adapter"}
+    try:
+        if adapter == "document":
+            result = document.dispatch(run_dir, operation, dry_run=dry_run)
+        elif adapter == "hermes":
+            result = hermes.dispatch(operation, hermes_command)
+        elif adapter == "codex":
+            result = codex.dispatch(operation, codex_command)
+        else:
+            result = {"adapter": adapter, "status": "unsupported", "reason": "unknown adapter"}
+    except (OSError, ValueError, RuntimeError) as exc:
+        result = {"adapter": adapter, "status": "failed", "reason": str(exc)}
     if result["status"] in {"unsupported", "failed"}:
         unsupported = adapter
-        result = document.dispatch(run_dir, operation, dry_run=dry_run)
-        result["status"] = "fallback_document" if not dry_run else "planned_fallback_document"
-        result["unsupported_adapter"] = unsupported
+        try:
+            result = document.dispatch(run_dir, operation, dry_run=dry_run)
+            result["status"] = "fallback_document" if not dry_run else "planned_fallback_document"
+            result["unsupported_adapter"] = unsupported
+        except (OSError, ValueError, RuntimeError) as exc:
+            result = {"adapter": adapter, "status": "failed", "reason": str(exc), "unsupported_adapter": unsupported}
     result.update({"operation_id": operation["operation_id"], "operation_path": str(operation_path)})
     return result
 

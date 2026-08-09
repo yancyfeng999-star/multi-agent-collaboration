@@ -29,7 +29,10 @@
 └── runs/<run-id>/...
 ```
 
-`runs/` 继续承担协议 v3 的不可变任务、事件、ACK、lease、result、Review、QA 和版本合同；`agents/` 承担跨 Run 的稳定身份、可恢复上下文和会话镜像。不能用长期上下文覆盖 Run 事实。
+`runs/` 继续承担协议 v3 的不可变任务、事件、ACK、lease、result、Review、QA、版本合同、
+scope freeze、retry policy 和 `claims/tasks`/`claims/threads`；`agents/` 承担跨 Run 的稳定
+身份、可恢复上下文和会话镜像。不能用长期上下文覆盖 Run 事实。claim 文件只记录短期
+串行占用和 lease，不是第二套任务状态机。
 
 ## 写入所有权
 

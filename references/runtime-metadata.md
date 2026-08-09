@@ -110,7 +110,8 @@ Hermes/Codex adapter 只调用操作者显式配置的外部 CLI/API bridge。�
 `SESSION_MAP.json` 的 stable agent identity、目标 platform、真实 active session ID 和精确 project
 workspace；不得自动发现/猜测 bridge 命令或复用不匹配 session。
 
-- `woken` 只表示显式 bridge 命令退出 0，不表示目标已 ACK、已运行或已完成。
+- `message_sent` 只表示显式 bridge 命令退出 0，或 document invocation package 已写入；不表示
+  目标已 ACK、已运行或已完成。
 - ACK、lease、result、Review、QA 仍必须由真实文档/evidence/event 驱动。
 - 未配置、session 校验失败或外部投递失败时，回退 document adapter，持久化完整 invocation
   package 并报告 `fallback_document`；这也只证明 package 已写入。

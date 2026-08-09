@@ -1,6 +1,6 @@
-# v1.3.0 合并架构与数据边界
+# v1.4.1 合并架构与数据边界
 
-本文描述 Multi-Agent Collaboration v1.3.0 的**当前实现结构**。规范入口是
+本文描述 Multi-Agent Collaboration v1.4.1 的**当前实现结构**。规范入口是
 [SKILL.md](../SKILL.md)；字段和操作细节分别以 [references/](../references/README.md)、
 [assets/](../assets/README.md) 和 [scripts/](../scripts/README.md) 为准。
 

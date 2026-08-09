@@ -47,6 +47,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--project-root", required=True)
     parser.add_argument("--governance", choices=("light", "standard", "strict"), required=True)
     parser.add_argument(
+        "--execution-profile",
+        choices=("fast", "normal"),
+        default="normal",
+        help="Latency preference; fast never lowers governance gates",
+    )
+    parser.add_argument(
+        "--dispatch-policy",
+        choices=("auto", "central", "hybrid", "self_service"),
+        default="auto",
+        help="Who may publish scoped tasks; auto selects a safe mode default",
+    )
+    parser.add_argument(
         "--transport",
         choices=("codex_native", "document_bus", "hybrid"),
         required=True,
@@ -112,6 +124,13 @@ def main() -> int:
         )
     if not args.versioning_reason.strip():
         raise SystemExit("--versioning-reason must not be empty")
+    dispatch_policy = args.dispatch_policy
+    if dispatch_policy == "auto":
+        dispatch_policy = "central" if args.governance == "strict" else "hybrid"
+    if args.governance == "strict" and args.execution_profile == "fast":
+        raise SystemExit("strict governance cannot use the fast execution profile")
+    if args.governance == "strict" and dispatch_policy != "central":
+        raise SystemExit("strict governance requires central dispatch policy")
 
     timestamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
     run_id = args.run_id or f"RUN-{timestamp}-{secrets.token_hex(3)}"
@@ -239,11 +258,15 @@ def main() -> int:
         "artifacts",
         "evidence",
         "locks",
+        "operations",
         "dead-letter",
         "delegations",
+        "claims/tasks",
+        "claims/threads",
         "native/threads",
         "native/operations",
         "versions/candidates",
+        "config",
         "archive",
     )
     for directory in directories:
@@ -299,6 +322,7 @@ def main() -> int:
                 "    writable_paths:",
                 f"      - {quote(str(bus_root))}",
                 "    forbidden_paths: []",
+                '    capabilities: ["task_publish", "task_claim", "thread_claim"]',
                 "    thread_id: null",
                 '    inbox: "inbox/coordinator"',
                 '    outbox: "outbox/coordinator"',
@@ -365,6 +389,31 @@ def main() -> int:
         ),
     )
 
+    retry_policy_file = run_dir / "config" / "retry-policy.yaml"
+    atomic_write(
+        retry_policy_file,
+        "\n".join(
+            (
+                f"protocol_version: {PROTOCOL_VERSION}",
+                'kind: "retry_policy"',
+                f"run_id: {quote(run_id)}",
+                'ack_timeout_seconds: 600',
+                'progress_timeout_seconds: 900',
+                'result_timeout_seconds: 600',
+                'max_attempts_light: 2',
+                'max_attempts_standard: 2',
+                'max_attempts_strict: 1',
+                'owner_noop_action: "blocked_then_reassign"',
+                'auto_retry_light: true',
+                'auto_retry_standard: false',
+                'auto_retry_strict: false',
+                'immutable_events: true',
+                f"created_at: {quote(created_at)}",
+                "",
+            )
+        ),
+    )
+
     atomic_write(
         run_dir / "manifest.yaml",
         "\n".join(
@@ -374,6 +423,9 @@ def main() -> int:
                 f"objective: {quote(args.objective)}",
                 'status: "initializing"',
                 f"governance: {quote(args.governance)}",
+                f"execution_profile: {quote(args.execution_profile)}",
+                f"dispatch_policy: {quote(dispatch_policy)}",
+                "preflight_required: true",
                 f"transport: {quote(args.transport)}",
                 f"max_parallel: {args.max_parallel}",
                 f"max_document_delegation_depth: {args.max_document_delegation_depth}",
@@ -390,6 +442,11 @@ def main() -> int:
                 f"target_version: {quote(args.target_version) if args.target_version else 'null'}",
                 f"version_contract_ref: {quote(str(version_contract_file))}",
                 f"version_contract_ref_sha256: {quote(sha256(version_contract_file))}",
+                f"retry_policy_ref: {quote(str(retry_policy_file))}",
+                f"retry_policy_ref_sha256: {quote(sha256(retry_policy_file))}",
+                "scope_freeze_ref: null",
+                "scope_freeze_ref_sha256: null",
+                'self_service_parent_scope: "task_owner_or_declared_collaborator"',
                 "release_candidates: []",
                 "change_id: null",
                 "registry_ref: null",

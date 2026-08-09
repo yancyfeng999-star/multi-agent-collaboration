@@ -43,6 +43,15 @@ Profile 的 `catalog` 对象由 `assets/schemas/agent-profile.schema.json` 校�
 
 不能把当前任务、当前 Run、会话 ID、模型、Provider、lease 或临时状态写进默认角色卡。
 
+本版本的可选协同能力也写在 `capabilities` 中，而不是新增角色：
+
+- `task_publish`：在父任务和冻结 scope 内发布子任务。
+- `task_claim`：抢占 `owner_agent: pool` 且自己在 `eligible_agents` 中的任务。
+- `thread_claim`：在精确 workspace 内串行抢占一个 Codex/Hermes/document thread。
+
+这些是运行时权限，不是页面状态。`agents.html` 只解释“谁适合做什么”和人工启动入口，
+不显示某个项目当前有多少 claim、线程或活跃任务。
+
 ## 启动表单的最小上下文
 
 页面收集：
