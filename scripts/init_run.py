@@ -13,6 +13,7 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
+from governance_paths import resolve_governance_project, write_project_binding
 from protocol_lib import (
     PROTOCOL_VERSION,
     ProtocolError,
@@ -45,6 +46,15 @@ def slug(value: str) -> str:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project-root", required=True)
+    parser.add_argument(
+        "--coordination-mode",
+        choices=("direct", "coordinated"),
+        default="direct",
+        help="Direct uses no persistent Run; coordinated stores governance outside the project",
+    )
+    parser.add_argument("--governance-root")
+    parser.add_argument("--project-id")
+    parser.add_argument("--project-name")
     parser.add_argument("--governance", choices=("light", "standard", "strict"), required=True)
     parser.add_argument(
         "--execution-profile",
@@ -108,6 +118,21 @@ def main() -> int:
     project_root = Path(args.project_root).expanduser().resolve()
     if not project_root.is_dir():
         raise SystemExit(f"Project root does not exist: {project_root}")
+    if args.coordination_mode == "direct":
+        raise SystemExit(
+            "Direct mode does not create a Run; work in the current task and use init_run only with --coordination-mode coordinated"
+        )
+    project_id = args.project_id or slug(project_root.name)
+    project_name = args.project_name or project_root.name
+    try:
+        governance_paths = resolve_governance_project(
+            project_root,
+            project_id,
+            args.governance_root,
+            require_existing=False,
+        )
+    except ProtocolError as exc:
+        raise SystemExit(str(exc)) from exc
     numeric_policies = {
         "--max-parallel": args.max_parallel,
         "--max-document-delegation-depth": args.max_document_delegation_depth,
@@ -193,8 +218,11 @@ def main() -> int:
         if not version_policy_ref.is_file():
             raise SystemExit(f"version policy does not exist: {version_policy_ref}")
 
-    bus_root = project_root / ".multi-agent-collaboration"
-    bus_root.mkdir(parents=True, exist_ok=True)
+    try:
+        binding_file = write_project_binding(governance_paths, project_name)
+    except ProtocolError as exc:
+        raise SystemExit(str(exc)) from exc
+    bus_root = governance_paths.project_dir
     init_lock = exclusive_lock(bus_root / ".init.lock")
     init_lock.__enter__()
     run_dir = bus_root / "runs" / run_id
@@ -293,9 +321,10 @@ def main() -> int:
             "\n".join(
                 (
                     f"protocol_version: {PROTOCOL_VERSION}",
-                    f"project_id: {quote(slug(project_root.name))}",
+                    f"project_id: {quote(project_id)}",
                     f"project_root: {quote(str(project_root))}",
                     f"allowed_roots: {json.dumps([str(project_root)], ensure_ascii=False)}",
+                    f"project_binding_ref: {quote(str(binding_file))}",
                     f"created_at: {quote(created_at)}",
                     'coordinator: "coordinator"',
                     'secrets_policy: "references_only"',
@@ -319,8 +348,7 @@ def main() -> int:
                 "    delegation_depth: 0",
                 "    readable_paths:",
                 f"      - {quote(str(project_root))}",
-                "    writable_paths:",
-                f"      - {quote(str(bus_root))}",
+                "    writable_paths: []",
                 "    forbidden_paths: []",
                 '    capabilities: ["task_publish", "task_claim", "thread_claim"]',
                 "    thread_id: null",
@@ -422,6 +450,8 @@ def main() -> int:
                 f"run_id: {quote(run_id)}",
                 f"objective: {quote(args.objective)}",
                 'status: "initializing"',
+                'coordination_mode: "coordinated"',
+                'governance_storage_schema: "1.0"',
                 f"governance: {quote(args.governance)}",
                 f"execution_profile: {quote(args.execution_profile)}",
                 f"dispatch_policy: {quote(dispatch_policy)}",

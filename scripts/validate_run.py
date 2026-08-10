@@ -36,6 +36,7 @@ from protocol_lib import (
     valid_iso8601,
 )
 from claim_lib import effective_owner
+from governance_paths import STORAGE_SCHEMA, load_project_binding
 
 
 REQUIRED_DIRS = (
@@ -742,8 +743,25 @@ def main() -> int:
 
     project_root_value = project.get("project_root", "")
     project_root = Path(project_root_value).resolve() if project_root_value else bus_root.parent
-    if project_root != bus_root.parent.resolve():
-        errors.append("project_root does not match document-bus location")
+    coordination_mode = manifest.get("coordination_mode")
+    if coordination_mode == "coordinated":
+        if manifest.get("governance_storage_schema") != STORAGE_SCHEMA:
+            errors.append(f"coordinated run governance_storage_schema must be {STORAGE_SCHEMA}")
+        binding_value = project.get("project_binding_ref", "")
+        binding_path = Path(binding_value).expanduser().resolve() if binding_value else None
+        if binding_path != (bus_root / "project-binding.yaml").resolve():
+            errors.append("coordinated run project_binding_ref must identify its governance project")
+        else:
+            try:
+                binding = load_project_binding(bus_root)
+                if binding["project_root"] != str(project_root):
+                    errors.append("governance binding project_root does not match project metadata")
+                if binding["project_id"] != project.get("project_id"):
+                    errors.append("governance binding project_id does not match project metadata")
+            except ProtocolError as exc:
+                errors.append(str(exc))
+    elif project_root != bus_root.parent.resolve():
+        errors.append("legacy project_root does not match document-bus location")
     allowed_roots = add_protocol_error(
         errors,
         json_string_list,

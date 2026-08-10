@@ -2,6 +2,8 @@ protocol_version: 3
 run_id: "<run-id>"
 objective: "<objective>"
 status: "initializing"
+coordination_mode: "coordinated"
+governance_storage_schema: "1.0"
 governance: "<light|standard|strict>"
 execution_profile: "normal"
 dispatch_policy: "central"
