@@ -18,16 +18,20 @@ class AgentLifecycleTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.project = Path(self.temp.name) / "project"
         self.project.mkdir()
+        self.governance = Path(self.temp.name) / "governance"
         self.command("init_project_agents.py", "--project-root", str(self.project),
                  "--project-id", "fixture", "--project-name", "Fixture",
                  "--agents", "A01-coordinator,A02-worker", "--user-confirmed")
-        self.bus = self.project / ".multi-agent-collaboration"
+        self.bus = self.governance / "projects" / "fixture"
 
     def command(self, script: str, *args: str, ok: bool = True, env: dict[str, str] | None = None):
         merged = os.environ.copy()
         if env:
             merged.update(env)
-        result = subprocess.run(["python3", str(SCRIPTS / script), *args], text=True,
+        arguments = list(args)
+        if "--governance-root" not in arguments:
+            arguments.extend(["--governance-root", str(self.governance)])
+        result = subprocess.run(["python3", str(SCRIPTS / script), *arguments], text=True,
                                 capture_output=True, env=merged)
         if ok and result.returncode:
             self.fail(result.stdout + result.stderr)

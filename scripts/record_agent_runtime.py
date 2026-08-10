@@ -186,12 +186,18 @@ def record_agent_runtime(
     environ: Any,
     capture_started_at: str | None = None,
     commit_callback: Callable[[dict[str, Any]], None] | None = None,
+    governance_root: str | Path | None = None,
+    project_id: str | None = None,
 ) -> dict[str, Any]:
     """Build and transactionally publish one immutable Runtime Profile."""
     root = Path(project_root).expanduser().resolve()
     if not root.is_dir():
         raise RuntimeRecordError("PROJECT_ROOT_INVALID")
-    agent = agent_root(root, agent_id)
+    agent = agent_root(
+        root, agent_id,
+        governance_root=governance_root,
+        project_id=project_id,
+    )
     observed = dict(observed or {})
     if set(observed) - set(FIELDS):
         raise RuntimeRecordError("SOURCE_SCHEMA_INVALID")
@@ -341,6 +347,8 @@ def record_agent_runtime(
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project-root", required=True)
+    parser.add_argument("--governance-root")
+    parser.add_argument("--project-id")
     parser.add_argument("--agent-id", required=True)
     parser.add_argument("--model")
     parser.add_argument("--provider")
@@ -360,6 +368,7 @@ def main() -> int:
         pointer = record_agent_runtime(
             project_root=args.project_root, agent_id=args.agent_id, observed=observed,
             environ=os.environ, capture_started_at=args.capture_started_at,
+            governance_root=args.governance_root, project_id=args.project_id,
         )
     except Exception as exc:
         code = exc.args[0] if isinstance(exc, RuntimeRecordError) and exc.args else "RUNTIME_RECORD_FAILED"

@@ -15,7 +15,7 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).parent
 sys.path.insert(0, str(SCRIPT_DIR))
 from protocol_lib import ProtocolError, atomic_write
-from project_memory_lib import exclusive_lock
+from project_memory_lib import bus_root, exclusive_lock, project_root
 
 CURRENT_SCHEMA = "1.1"
 PROTECTED_NAMES = {"archive", "checkpoints", "checkpoint"}
@@ -36,6 +36,8 @@ def inventory(bus: Path) -> dict[str, str]:
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project-root", required=True)
+    parser.add_argument("--governance-root")
+    parser.add_argument("--project-id")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--target-version", default=CURRENT_SCHEMA, choices=[CURRENT_SCHEMA])
     return parser.parse_args()
@@ -76,8 +78,8 @@ def verify_protected(before: dict[str, str], after: dict[str, str]) -> None:
 
 
 def execute(args: argparse.Namespace) -> int:
-    root = Path(args.project_root).expanduser().resolve()
-    bus = root / ".multi-agent-collaboration"
+    root = project_root(args.project_root)
+    bus = bus_root(root, governance_root=args.governance_root, project_id=args.project_id)
     team_path = bus / "TEAM.yaml"
     try:
         if not team_path.is_file():
@@ -139,8 +141,9 @@ def execute(args: argparse.Namespace) -> int:
 
 def main() -> int:
     args = parse_args()
-    root = Path(args.project_root).expanduser().resolve()
-    with exclusive_lock(root / ".multi-agent-collaboration" / ".init.lock"):
+    root = project_root(args.project_root)
+    bus = bus_root(root, governance_root=args.governance_root, project_id=args.project_id)
+    with exclusive_lock(bus / ".init.lock"):
         return execute(args)
 
 

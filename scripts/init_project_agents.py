@@ -28,6 +28,8 @@ SCRIPT_DIR = Path(__file__).parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
 from protocol_lib import ProtocolError, atomic_write
+from governance_paths import resolve_governance_project, write_project_binding
+from project_memory_lib import exclusive_lock
 
 
 AGENT_ID_RE = re.compile(r"^A\d{2}-[a-z0-9][a-z0-9-]*$")
@@ -123,6 +125,10 @@ def catalog_for(role_name: str) -> dict:
 def parse_args():
     parser = argparse.ArgumentParser(description="初始化项目 Agent 结构")
     parser.add_argument("--project-root", required=True, help="项目根目录")
+    parser.add_argument(
+        "--governance-root",
+        help="项目外的开发治理根目录；默认 ~/.codex/governance/multi-agent-collaboration",
+    )
     parser.add_argument("--project-id", required=True, help="项目 ID")
     parser.add_argument("--project-name", required=True, help="项目名称")
     parser.add_argument(
@@ -750,9 +756,22 @@ def main():
     if not agents[0].endswith("-coordinator"):
         print("WARNING: 第一个 Agent 建议是 coordinator")
 
-    # TEAM.yaml is the completion marker. Build a fresh tree beside the target
-    # and publish it with one directory rename so no partial tree is observable.
-    base_dir = project_root / ".multi-agent-collaboration"
+    try:
+        paths = resolve_governance_project(
+            project_root,
+            args.project_id,
+            args.governance_root,
+            require_existing=False,
+        )
+        write_project_binding(paths, args.project_name)
+    except ProtocolError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    # TEAM.yaml is the Agent-layer completion marker. The whole layer is built
+    # in external governance storage and then published under one lock. The
+    # target project remains untouched.
+    base_dir = paths.project_dir
     if (base_dir / "TEAM.yaml").exists():
         missing_agents = [agent for agent in agents if not (base_dir / "agents" / agent / "conversations/SESSION_MAP.json").is_file()]
         if missing_agents:
@@ -762,19 +781,29 @@ def main():
         print(f"WARNING: TEAM.yaml 已存在，跳过初始化")
         sys.exit(0)
 
-    if base_dir.exists():
-        print("ERROR: 检测到不完整初始化；TEAM.yaml 不存在，拒绝覆盖。", file=sys.stderr)
-        print("请先移走该目录或运行修复工具；不要把该目录视为初始化成功。", file=sys.stderr)
+    agent_layer_entries = {
+        "PROTOCOL.md", "DECISIONS.md", "INDEX.md", "CURRENT_PROJECT_CONTEXT.md",
+        "schemas", "templates", "agents",
+    }
+    conflicting = sorted(name for name in agent_layer_entries if (base_dir / name).exists())
+    if conflicting:
+        print(
+            "ERROR: 检测到不完整 Agent 治理层；TEAM.yaml 不存在，拒绝覆盖: "
+            + ", ".join(conflicting),
+            file=sys.stderr,
+        )
+        print("请先运行修复工具；不要把该目录视为初始化成功。", file=sys.stderr)
         sys.exit(1)
 
-    staging_root = Path(tempfile.mkdtemp(prefix=".multi-agent-init-", dir=project_root))
-    base_dir = staging_root / ".multi-agent-collaboration"
+    paths.governance_root.mkdir(parents=True, exist_ok=True)
+    staging_root = Path(tempfile.mkdtemp(prefix=".multi-agent-init-", dir=paths.governance_root))
+    staged_base_dir = staging_root / "agent-layer"
+    base_dir = staged_base_dir
     ensure_dir(base_dir)
-    agents_entry = project_root / "AGENTS.md"
-    created_agents_entry = False
 
     print(f"初始化项目 Agent 结构...")
     print(f"  项目根目录: {project_root}")
+    print(f"  治理目录: {paths.project_dir}")
     print(f"  项目 ID: {args.project_id}")
     print(f"  Agent 数量: {len(agents)}")
     print(f"  治理模式: {args.governance}")
@@ -822,13 +851,24 @@ def main():
             base_dir, args.project_id, args.project_name, str(project_root),
             agents, args.governance, args.max_parallel,
         )
-        if not agents_entry.exists():
-            write_text(agents_entry, "# Project Agents\n\n多智能体协作入口：`.multi-agent-collaboration/PROTOCOL.md`。项目目录是长期真源。\n")
-            created_agents_entry = True
-        os.replace(base_dir, project_root / ".multi-agent-collaboration")
+        published: list[Path] = []
+        publish_order = [
+            "PROTOCOL.md", "DECISIONS.md", "INDEX.md", "CURRENT_PROJECT_CONTEXT.md",
+            "schemas", "templates", "agents", "TEAM.yaml",
+        ]
+        with exclusive_lock(paths.project_dir / ".init.lock"):
+            for name in publish_order:
+                target = paths.project_dir / name
+                if target.exists():
+                    raise ProtocolError(f"refusing to overwrite governance entry: {target}")
+                os.replace(staged_base_dir / name, target)
+                published.append(target)
     except Exception as exc:
-        if created_agents_entry:
-            agents_entry.unlink(missing_ok=True)
+        for target in reversed(locals().get("published", [])):
+            if target.is_dir():
+                shutil.rmtree(target, ignore_errors=True)
+            else:
+                target.unlink(missing_ok=True)
         print(f"ERROR: 初始化事务已回滚: {exc}", file=sys.stderr)
         sys.exit(1)
     finally:
@@ -837,7 +877,7 @@ def main():
 
     print()
     print("初始化完成！")
-    print(f"项目 Agent 结构已创建在: {project_root / '.multi-agent-collaboration'}")
+    print(f"Agent 治理结构已创建在: {paths.project_dir}")
     print()
     print("下一步:")
     print("  1. 编辑 ROLE.md 定义每个 Agent 的职责")

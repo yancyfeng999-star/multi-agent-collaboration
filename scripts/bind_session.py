@@ -50,6 +50,8 @@ class RuntimeMetadataRequired(ProtocolError):
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="绑定平台会话到 Agent")
     parser.add_argument("--project-root", required=True, help="项目根目录")
+    parser.add_argument("--governance-root")
+    parser.add_argument("--project-id")
     parser.add_argument("--agent-id", required=True, help="Agent ID")
     parser.add_argument("--platform", required=True, choices=["hermes", "claude-code", "codex", "other"])
     parser.add_argument("--session-id", required=True, help="非敏感平台会话 ID")
@@ -131,7 +133,11 @@ def main() -> int:
     args = parse_args()
     try:
         root = project_root(args.project_root)
-        agent = agent_root(root, args.agent_id)
+        agent = agent_root(
+            root, args.agent_id,
+            governance_root=args.governance_root,
+            project_id=args.project_id,
+        )
         session_map_path = agent / "conversations" / "SESSION_MAP.json"
         workspace = Path(args.workspace).expanduser().resolve() if args.workspace else root
         try:
@@ -185,6 +191,8 @@ def main() -> int:
                 },
                 environ=os.environ,
                 commit_callback=publish_session_map,
+                governance_root=args.governance_root,
+                project_id=args.project_id,
             )
 
         print("✓ 会话绑定成功")

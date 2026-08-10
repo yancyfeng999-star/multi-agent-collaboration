@@ -250,11 +250,18 @@ def _validate_payload(payload: Mapping[str, Any], agent_id: str, agent: Path) ->
     return _parse_time(payload.get("recorded_at"))
 
 
-def record_agent_activity(*, project_root: str | Path, agent_id: str, payload: Mapping[str, Any]) -> dict[str, Any]:
+def record_agent_activity(
+    *, project_root: str | Path, agent_id: str, payload: Mapping[str, Any],
+    governance_root: str | Path | None = None, project_id: str | None = None,
+) -> dict[str, Any]:
     root = Path(project_root).expanduser().resolve()
     if not root.is_dir():
         raise ActivityRecordError("PROJECT_ROOT_INVALID")
-    agent = agent_root(root, agent_id)
+    agent = agent_root(
+        root, agent_id,
+        governance_root=governance_root,
+        project_id=project_id,
+    )
     payload = copy.deepcopy(dict(payload))
     recorded = _validate_payload(payload, agent_id, agent)
     ledger = agent / "activity" / payload["run_id"] / payload["task_id"] / payload["attempt_id"]
@@ -306,6 +313,8 @@ def record_agent_activity(*, project_root: str | Path, agent_id: str, payload: M
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project-root", required=True)
+    parser.add_argument("--governance-root")
+    parser.add_argument("--project-id")
     parser.add_argument("--agent-id", required=True)
     parser.add_argument("--input", required=True, help="JSON activity payload path, or - for stdin")
     return parser
@@ -318,7 +327,10 @@ def main() -> int:
             payload = json.load(sys.stdin)
         else:
             payload = json.loads(Path(args.input).read_text(encoding="utf-8"))
-        pointer = record_agent_activity(project_root=args.project_root, agent_id=args.agent_id, payload=payload)
+        pointer = record_agent_activity(
+            project_root=args.project_root, agent_id=args.agent_id, payload=payload,
+            governance_root=args.governance_root, project_id=args.project_id,
+        )
     except Exception as exc:
         code = exc.args[0] if isinstance(exc, ActivityRecordError) and exc.args else "ACTIVITY_RECORD_FAILED"
         print(str(code), file=sys.stderr)

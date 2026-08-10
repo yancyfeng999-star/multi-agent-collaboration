@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from dataclasses import dataclass
@@ -72,6 +73,13 @@ def resolve_governance_project(
     _validate_separation(project, root)
     key = _project_key(project_id)
     project_dir = root / "projects" / key
+    binding_path = project_dir / "project-binding.yaml"
+    if binding_path.is_file():
+        existing = load_project_binding(project_dir)
+        if existing["project_id"] != project_id or existing["project_root"] != str(project):
+            suffix = hashlib.sha256(str(project).encode("utf-8")).hexdigest()[:10]
+            key = f"{key}-{suffix}"
+            project_dir = root / "projects" / key
     if require_existing:
         binding = load_project_binding(project_dir)
         if binding["project_id"] != project_id or binding["project_root"] != str(project):
@@ -84,6 +92,39 @@ def resolve_governance_project(
         project_dir=project_dir,
         agents_dir=project_dir / "agents",
         runs_dir=project_dir / "runs",
+    )
+
+
+def discover_governance_project(
+    project_root: str | Path,
+    governance_root: str | Path | None = None,
+) -> GovernancePaths:
+    """Find the single external binding for a project without guessing its ID."""
+    project = Path(project_root).expanduser().resolve()
+    root = (
+        default_governance_root()
+        if governance_root is None
+        else Path(governance_root).expanduser().resolve()
+    )
+    _validate_separation(project, root)
+    matches: list[dict[str, Any]] = []
+    for binding_path in sorted((root / "projects").glob("*/project-binding.yaml")):
+        try:
+            binding = load_project_binding(binding_path.parent)
+        except ProtocolError:
+            continue
+        if binding["project_root"] == str(project):
+            matches.append(binding)
+    if not matches:
+        raise ProtocolError(f"no external governance binding found for project: {project}")
+    if len(matches) > 1:
+        raise ProtocolError("multiple governance bindings match the target project; pass --project-id")
+    binding = matches[0]
+    return resolve_governance_project(
+        project,
+        binding["project_id"],
+        root,
+        require_existing=True,
     )
 
 

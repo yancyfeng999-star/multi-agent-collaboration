@@ -17,7 +17,7 @@ SCRIPT_DIR = Path(__file__).parent
 sys.path.insert(0, str(SCRIPT_DIR))
 from protocol_lib import ProtocolError, atomic_write
 from init_project_agents import catalog_for
-from project_memory_lib import exclusive_lock
+from project_memory_lib import bus_root, exclusive_lock, project_root
 
 AGENT_ID_RE = re.compile(r"^A\d{2}-[a-z0-9][a-z0-9-]*$")
 STATUSES = {"active", "paused", "retired"}
@@ -34,9 +34,13 @@ def now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def load_store(project_root: str) -> tuple[Path, Path, dict]:
-    root = Path(project_root).expanduser().resolve()
-    bus = root / ".multi-agent-collaboration"
+def load_store(
+    project_root_value: str,
+    governance_root: str | None = None,
+    project_id: str | None = None,
+) -> tuple[Path, Path, dict]:
+    root = project_root(project_root_value)
+    bus = bus_root(root, governance_root=governance_root, project_id=project_id)
     team_path = bus / "TEAM.yaml"
     if not team_path.is_file():
         raise ProtocolError(f"TEAM.yaml not found: {team_path}")
@@ -365,6 +369,8 @@ def parser() -> argparse.ArgumentParser:
     for action in ("list", "add", "update", "pause", "resume", "retire", "archive", "repair"):
         sub = subs.add_parser(action)
         sub.add_argument("--project-root", required=True)
+        sub.add_argument("--governance-root")
+        sub.add_argument("--project-id")
         if action != "list":
             sub.add_argument("--agent-id", required=True)
         if action == "add":
@@ -384,7 +390,7 @@ def parser() -> argparse.ArgumentParser:
 
 def execute(args: argparse.Namespace) -> int:
     try:
-        bus, team_path, team = load_store(args.project_root)
+        bus, team_path, team = load_store(args.project_root, args.governance_root, args.project_id)
         if args.action == "list":
             print(json.dumps(team.get("agents", []), ensure_ascii=False, indent=2))
             return 0
@@ -455,8 +461,9 @@ def execute(args: argparse.Namespace) -> int:
 
 def main() -> int:
     args = parser().parse_args()
-    root = Path(args.project_root).expanduser().resolve()
-    with exclusive_lock(root / ".multi-agent-collaboration" / ".init.lock"):
+    root = project_root(args.project_root)
+    bus = bus_root(root, governance_root=args.governance_root, project_id=args.project_id)
+    with exclusive_lock(bus / ".init.lock"):
         return execute(args)
 
 

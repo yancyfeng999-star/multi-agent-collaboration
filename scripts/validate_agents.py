@@ -28,6 +28,8 @@ SECRET_FIELD_RE = re.compile(r"(?i)(?:api[_-]?key|access[_-]?token|refresh[_-]?t
 def parser() -> argparse.ArgumentParser:
     value = argparse.ArgumentParser(description="验证项目 Agent 持久化结构")
     value.add_argument("--project-root", required=True)
+    value.add_argument("--governance-root")
+    value.add_argument("--project-id")
     return value
 
 
@@ -667,7 +669,12 @@ def validate_agent(bus: Path, agent: Path, errors: list[str]) -> dict[str, str]:
 def main() -> int:
     args = parser().parse_args(); errors: list[str] = []
     try:
-        root = project_root(args.project_root); bus = bus_root(root)
+        root = project_root(args.project_root)
+        bus = bus_root(
+            root,
+            governance_root=args.governance_root,
+            project_id=args.project_id,
+        )
         for relative in REQUIRED_PROJECT_FILES:
             if not (bus / relative).is_file(): errors.append(f"missing project file: {relative}")
         declared = validate_team(bus / "TEAM.yaml", root, errors) if (bus / "TEAM.yaml").is_file() else set()

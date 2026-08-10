@@ -24,8 +24,10 @@ from protocol_lib import ProtocolError, atomic_write, now_iso
 
 
 def parser() -> argparse.ArgumentParser:
-    value = argparse.ArgumentParser(description="同步对话导出到项目内 Agent archive")
+    value = argparse.ArgumentParser(description="同步对话导出到项目外 Agent 治理归档")
     value.add_argument("--project-root", required=True)
+    value.add_argument("--governance-root")
+    value.add_argument("--project-id")
     value.add_argument("--agent-id", required=True)
     value.add_argument("--source-file", required=True, help="Markdown/text/JSON 对话导出文件")
     value.add_argument("--platform", required=True, choices=["hermes", "claude-code", "codex", "other"])
@@ -195,7 +197,11 @@ def sync(args: argparse.Namespace) -> Path:
         if not isinstance(value, str) or not value or value in {".", ".."} or "/" in value or "\\" in value or "\x00" in value:
             raise ProtocolError(f"invalid --{label}: path separators and traversal are forbidden")
     root = project_root(args.project_root)
-    agent = agent_root(root, args.agent_id)
+    agent = agent_root(
+        root, args.agent_id,
+        governance_root=args.governance_root,
+        project_id=args.project_id,
+    )
     source = Path(args.source_file).expanduser().resolve()
     raw, source_body, messages = _read_source(source)
     _validate_no_redact(args, source_body)
