@@ -28,6 +28,7 @@
 | `finalize_project.py` | 通过 Run 与长期层门禁后生成项目最终报告和审计清单 |
 | `manage_project_agents.py` | 添加、更新、暂停、恢复、退役和修复长期 Agent |
 | `migrate_project_agents.py` | 以备份、校验和回滚迁移长期存储版本 |
+| `migrate_governance_storage.py` | 将旧的项目内治理目录逐文件校验并复制到外部 Governance Home，不删除源目录 |
 | `coordinator.py` | 执行有界单 tick 的 ready-wave、超时与投递协调 |
 | `preflight_run.py` | 一次性只读检查任务图、范围、锁、治理和派发准备度 |
 | `completion_preflight.py` | 一次性只读检查 Owner 结果、验证、Review/QA、commit 和收口缺口 |
@@ -154,6 +155,7 @@ python3 scripts/create_project_checkpoint.py --help
 python3 scripts/finalize_project.py --help
 python3 scripts/manage_project_agents.py --help
 python3 scripts/migrate_project_agents.py --help
+python3 scripts/migrate_governance_storage.py --help
 python3 scripts/coordinator.py --help
 python3 scripts/preflight_run.py --help
 python3 scripts/completion_preflight.py --help
