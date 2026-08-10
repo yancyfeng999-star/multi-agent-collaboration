@@ -1,6 +1,6 @@
 ---
 name: multi-agent-collaboration
-description: Use when a project needs an Agent role catalog or manual launch, or needs multiple agents, parallel task ownership, cross-session continuity, project-local audit trails, governed review/QA, or recovery across agent platforms.
+description: Use when a user wants to understand or manually start an Agent role, or when a project needs multiple agents, parallel ownership, governed handoffs, review and QA, cross-session recovery, or auditable release coordination.
 ---
 
 # 多智能体协同（Multi-Agent Collaboration）
@@ -10,719 +10,215 @@ description: Use when a project needs an Agent role catalog or manual launch, or
 - Skill ID：`multi-agent-collaboration`
 - Skill 版本：`1.4.1`（唯一版本权威源：`VERSION`）
 - Protocol 版本：`3`
-- 调用方式：`$multi-agent-collaboration`
+- Governance Storage Schema：`1.0`
+- 调用：`$multi-agent-collaboration`
 
-## 全局适用范围
+## 定位
 
-这是安装在用户级 Skill 目录中的通用能力，不属于当前打开的项目。每次调用都重新识别
-目标项目、项目级指令和治理规则，不继承上一次项目的角色、路径、服务器、环境名、发布
-账本或产品边界。
+本 Skill 有两条路径：
 
-- 可用于任意代码库、文档项目、研究任务、内容生产、运维计划或 projectless 任务。
-- 有项目时，以目标项目自己的 AGENTS、README、架构和发布规范为约束。
-- 无项目时，由用户指定一个 coordination/output 目录保存文档总线。
-- 项目专属角色和标准只写入该次 run，不写回全局 Skill。
+- **Direct**：默认路径。一个 Agent 在当前任务中完成明确目标，默认不创建治理资料。
+- **Coordinated**：只在确实需要多 Agent、受管交接、独立质量门禁、跨会话恢复或审计时启用，资料保存在项目外 Governance Home。
 
-## Skill 与项目的版本边界
+本 Skill 是开发治理能力，不是目标网站的运行组件。网站构建、启动、测试、部署和线上运行对治理资料零依赖。不自动创建或修改目标项目的 `AGENTS.md`。
 
-三个版本对象必须分开记录，不得用一个版本号代替另一个：
+## 强制边界
 
-| 对象 | 权威源 | 何时变化 |
-| --- | --- | --- |
-| **Skill 版本** | 根目录 `VERSION` | 用户入口、文档、脚本、Schema、模板或默认行为发生用户可见变化 |
-| **Protocol 版本** | `scripts/protocol_lib.py` 与协议文档 | Run、任务、事件、状态机、证据或恢复语义发生不兼容变化 |
-| **项目业务版本** | 目标项目自己的版本文件或 `version-contract` | 目标项目交付范围、兼容性或发布内容发生变化 |
-
-本 Skill 当前为 Skill `1.4.1`、Protocol `3`。更新 Skill 不会自动修改目标项目业务版本；
-只有进入 `tracked` Run 并满足目标项目自己的版本规则时，才治理项目业务版本。发布本 Skill
-时必须同步 `VERSION`、`CHANGELOG.md`、中英文 README、`SKILL.md`、相关测试和用户入口，
-先完成验证，再推送并通过代码审查合并。
+1. 先读项目、项目级指令、Git 状态、测试和版本规则，再决定是否写入。
+2. Direct 不创建 Agent、Run、handoff、checkpoint、candidate index 或项目内治理目录。
+3. Coordinated 的治理根必须在目标项目之外；默认为 `~/.codex/governance/multi-agent-collaboration`。
+4. 只有项目业务源码、测试、构建配置、版本权威源和必要交付文档可位于目标项目。
+5. 旧的项目内 `.multi-agent-collaboration/` 只读兼容；只能经显式 dry-run/apply 迁移，不自动删除。
+6. 不为新功能自动增加 Agent。能交给同一 Agent 且权限、写入范围、独立审查不冲突的能力必须合并。
+7. Owner 不能审查自己的实现。Reviewer 与 QA 默认合并为一个独立 Quality 能力。
+8. 未经用户明确授权，不创建外部任务、不发布、不部署、不执行高风险操作。
 
 ## 默认用户入口：Agent 目录与人工启动
 
-用户从 [agents.html](agents.html) 选择一个角色、填写项目根目录/目标/范围/验收标准并复制
-启动指令。页面只做角色说明和人工启动，不读取 Run 状态、不显示当前任务、不创建线程、不
-自动增加 Agent，也不自动编排任务。
+用户可打开 [agents.html](agents.html)，了解 Coordinator、Owner、Quality 和按需 Release，填写项目根目录、目标、范围和验收标准，然后人工启动。
 
-默认启动模式只使用一个用户选定的 Agent：
+该页面：
 
-1. Agent 先只读读取项目内的指令、README、约束和实际状态。
-2. Agent 复述目标、范围、验收标准和缺失信息。
-3. 只有用户授权的范围才允许修改；projectless 任务使用指定的 coordination/output 目录。
-4. 需要多个 Agent、正式证据或高风险操作时，才切换到下方的 Protocol v3 高级治理 Run 或长期 Agent 层。
+- 不读取项目 Run，不显示实时任务或 Agent 状态。
+- 不自动分配任务、不创建线程、不增加 Agent。
+- 生成的是 Direct 启动指令，不写入目标项目或 Governance Home。
+- 只是 Skill 自带的静态角色目录，不是任何项目的 Agent 事实源。
 
-页面的角色卡不是项目事实源。项目稳定身份和职责以项目自己的 `TEAM.yaml`、
-`AGENT_PROFILE.json` 和 `ROLE.md` 为准；页面不能凭空推断项目 Agent 数量或当前状态。
-初始化项目 Agent 时，`AGENT_PROFILE.json` 应包含稳定的 `catalog` 投影（使命、能力、适用场景、
-禁用场景和启动骨架）；这些字段用于项目专属目录，不得包含运行状态。
-完整字段和启动骨架见 [agent-catalog.md](references/agent-catalog.md)。
+角色说明见 [agent-catalog.md](references/agent-catalog.md)。
 
 ## 能力路由
 
-先判断任务需要哪一层，不要默认把单 Agent 使用升级为编排，也不要让长期项目绕过 Run 门禁。
-
-| 场景 | 选用能力 | 说明 |
+| 场景 | 路径 | 持久资料 |
 | --- | --- | --- |
-| 用户从目录选择一个 Agent，处理单一、明确、低风险目标 | 人工启动模式 | 不创建 Run、线程或任务图；Agent 仍须先读项目并遵守授权边界 |
-| 一次性、低风险、独立调查 | 简单并行或单个 Protocol v3 Run | 结束后可归档，不必创建长期身份 |
-| 单轮但高风险、需要 Review/QA/证据 | Protocol v3 Run | 使用任务、事件、锁、Review、QA 与收口门禁 |
-| 多天、多阶段、稳定角色或跨会话恢复 | 长期 Agent 层 | 建立 TEAM、身份、会话归档、checkpoint 与恢复包 |
-| 长期项目中的正式执行波次 | 长期层 + Run 层 | Run 负责执行事实；长期层负责跨 Run 身份、记忆与项目收口 |
-| 临时子 Agent | 父 Agent + 必要的 Run 记录 | 临时角色不自动升级为长期 Agent，结果由父 Agent 归档 |
+| 单一、明确、低风险任务 | Direct | 无 |
+| 普通网站更新，一个 Owner 可完成 | Direct | 无 |
+| 多个独立调查，结果可由当前任务收集 | Direct + 临时子 Agent | 不建长期 Agent 层 |
+| 需要多 Agent 并行写入、ACK/lease、锁、交接或独立质量门禁 | Coordinated + Protocol v3 Run | Governance Home 内 Run |
+| 多天、稳定身份、跨会话恢复 | Coordinated + 长期 Agent 层 | Governance Home 内 Agents |
+| 长期项目的正式执行波次 | 长期层 + Run 层 | 两者同属一个外部治理项目 |
+| 生产、数据库、资金、权限、删除、发布 | Coordinated + Strict | 正式证据与人工门禁 |
 
-事实分工固定：
+事实分工：
 
-- **长期 Agent 层**保存稳定身份、完整原文、历史 checkpoint、当前上下文和跨平台恢复资料。
-- **Protocol v3 Run**保存冻结任务、状态事件、ACK/lease、锁、Review、QA、证据和发布门禁。
-- **长期层 + Run 层**同时使用时，Run 是执行状态真源；长期层只通过受验证的桥接结果沉淀，不另造第二套任务状态机。
-- **人工启动模式**只负责用户选定的单 Agent 使用；它不是第三套持久化状态机。进入正式交付、
-  并行或高风险操作后，必须切换到 Run/长期层的事实模型。
+- **长期 Agent 层**保存稳定身份、会话映射、原文归档、checkpoint、handoff 和恢复资料。
+- **Protocol v3 Run**保存冻结任务、事件、ACK/lease、锁、result、Review、QA、证据和发布门禁。
+- **长期层 + Run 层**中，Run 是执行状态真源；长期层只通过校验后的 Bridge 沉淀结果。
+- **Candidate Index**只是派生视图，不授予发布权限，也不是项目构建输入。
 
-## 核心原则
+## Direct 工作流
 
-把文档协议作为唯一持久化通信底座，把 Codex 原生线程通信作为实时加速层。
+1. 读取用户已给定的项目根、项目指令、Git 状态、目标、范围和验收标准。
+2. 只询问会改变实现方向的缺失信息。
+3. 一个 Agent 完成实现和相称验证；必要的独立只读子任务可在当前任务内使用临时子 Agent。
+4. 报告真实文件、验证、风险和未验证项。
+5. 不运行 `init_project_agents.py` 或 `init_run.py`，不创建治理记录。
 
-- 每个任务都必须有文档，即使目标是 Codex 线程。
-- Codex 可直接收到完整消息并自动运行，不要求先轮询或读取 inbox。
-- Codex 的任务、结果、状态和交接仍必须镜像到文档。
-- 通用智能体只依赖任务文档和结果文档也必须能完成接力。
-- 通用智能体内部透明子代理由父智能体负责；正式受管子代理必须进入文档协议。
-- 文档、原生消息和 Git 事实冲突时，以最新有效事件、实际文件和 Git commit 为准。
-- 未经用户明确确认，不创建线程、不扩大写入范围、不执行线上或高风险操作。
+任务中途如果出现真实的并行写入、自审冲突、跨会话恢复或正式门禁需求，明确说明原因后才升级为 Coordinated。
 
-## 第一步必须询问
+## Coordinated 最小编制
 
-从 HTML 启动表单或当前上下文提取已知答案，只询问缺失的高价值信息。单 Agent 人工启动不
-要求用户先回答完整治理问卷；以下字段是需要进入正式 Run 或执行写入前的最小确认：
+Coordinated 是按需启用的高级治理路径，不是普通项目更新的默认前置。
 
-1. 目标项目根目录；无项目时询问 coordination/output 目录。
-2. 最终目标和交付物。
-3. 允许修改与禁止修改的范围。
-4. 验收标准和必须运行的检查。
-5. 治理模式：`light`、`standard` 或 `strict`。
-6. 项目版本治理判断：`tracked` 或 `not_applicable`，以及判断理由。
-7. 若为 `tracked`：版本权威源、当前版本、目标版本和版本规则。
-8. 是否明确允许创建多个 Codex 线程。
-9. 最大并行线程数，以及是否包含通用智能体（仅在用户明确要求多 Agent 时）。
+先合并能力，再确定 Agent 数量：
 
-不要重复询问用户已经明确的信息。用户确认多 Agent 方案之前，只允许只读扫描和规划；
-单 Agent 人工启动本身不创建线程，也不触发线程确认门禁。
+- Coordinator：目标、范围、任务图、冲突串行、结果集成、版本治理和最终收口。
+- Owner：在唯一 owned paths 范围内实现一个可验证目标。
+- Quality：独立 Review + QA；仅在 Owner 不能自审或项目门禁需要时创建。
+- Release：只在项目已有正式发布流程时按需启用，不为版本治理单独新建 Agent。
 
-详细访谈、扫描和任务图规则见 [interview-and-planning.md](references/interview-and-planning.md)。
+只有权限隔离、owned paths 冲突、独立运行环境、项目强制独立审查，或有可衡量并行收益时才增加 Agent。
 
-## 选择通信适配器
+## Governance Home
 
-文档通信始终启用，再选择加速方式：
-
-| transport | 使用条件 | 执行方式 |
-| --- | --- | --- |
-| `codex_native` | 所有执行者都是 Codex 线程 | 文档双写 + Codex 原生线程消息 |
-| `document_bus` | 只使用通用智能体 | 写 inbox，生成可复制调用命令，读取 outbox |
-| `hybrid` | Codex 与通用智能体混合 | 按 Agent Registry 为每个角色选择适配器 |
-
-通用适配规则见 [adapters.md](references/adapters.md)。执行 Codex 原生任务前必须读取
-[codex-native-protocol.md](references/codex-native-protocol.md)。
-
-## 选择治理模式
-
-- `light`：研究、方案、低风险文档；保留任务、事件、结果和总结。
-- `standard`：代码修改；增加 Git、owned paths、Review、QA 和验证证据。
-- `strict`：生产、数据库、资金、权限、密钥、发布；增加变更编号、正式 handoff、registry、安全审查、人工门禁和回滚。
-
-执行配置与治理模式分开记录：
-
-| execution_profile | 适用场景 | 行为边界 |
-| --- | --- | --- |
-| `fast` | Light 或 Standard 的时效优先任务 | 单次前置检查、减少重复等待；Light 可不设 Reviewer/QA，Standard 仍保留一次合并质量交接；Strict 禁止使用 |
-| `normal` | Standard/Strict 或不确定场景 | 保留完整 Review、QA、证据、版本和人工门禁 |
-
-派发策略同样显式记录：`central` 只允许 Coordinator 派发；`hybrid` 允许 Coordinator
-和具备 `task_publish` 的工作 Agent 在父任务范围内发布；`self_service` 允许受控的工作 Agent
-发布、抢占任务和抢占线程。自助能力不是新 Agent，也不是扩大权限；每次发布仍必须写冻结任务、
-父任务 hash、事件和路径锁。
-
-模式字段、必填证据和人工门禁见 [modes-and-gates.md](references/modes-and-gates.md)。
-
-## 项目交付版本治理
-
-版本治理集中在现有角色，不新增独立 Version Agent：
-
-- Coordinator 负责识别版本权威源、冻结版本合同、绑定任务、编号 RC 和触发版本重评。
-- 普通 Owner、Reviewer 和 QA 沿用原职责，不各自修改或决定项目版本。
-- 只有项目本来需要发布时，现有 Release 角色才负责最终版本落盘和发布；否则由
-  Coordinator 收口。
-
-只读分析、调研和不进入正式交付物的草稿可使用 `not_applicable`，但必须写明理由。
-代码、数据库、API、配置、构建、部署、发布，以及多个 Agent 汇入同一交付物的工作应使用
-`tracked`。Skill 先读取项目已有版本规则和权威源，不擅自发明版本体系。
-
-`tracked` Run 必须冻结基线版本、基线 commit、目标版本、版本源及其 hash，并为所有任务
-写入相同 `release_train_id`、`delivery_version` 和版本合同 hash。版本源在 dispatch 前
-漂移时 fail-closed。Coordinator 使用 `record-release-candidate` 创建不可变的
-`<target>-rc.N`；正式 Release 必须引用真实候选 commit，且版本源已写入目标版本。
-
-任务 attempt、RC 编号和项目正式版本相互独立。返工只增加 attempt；重新集成增加 RC；
-只有交付范围或兼容性变化才重新评估目标项目版本。完整规则见
-[version-governance.md](references/version-governance.md)。
-
-
-## Agent 身份持久化
-
-多智能体项目需要长期稳定的 Agent 身份，而不是每次运行都重新定义。
-
-### 核心概念
-
-1. **项目 Agent** - 拥有稳定身份、职责和历史的长期协作角色
-2. **临时子 Agent** - 一次性的、边界明确的调查或执行任务
-3. **总控 Agent** - 负责维护总目标、拆解任务、分配并行波次
-
-### Agent 目录结构
-
-每个长期 Agent 必须有独立目录：
+默认布局：
 
 ```text
-.multi-agent-collaboration/agents/<agent-id>/
-├── ROLE.md                    # 岗位章程
-├── SYSTEM_PROMPT.md           # 恢复提示词
-├── CHECKLIST.md               # 检查清单
-├── conversations/
-│   ├── CURRENT_CONTEXT.md     # 当前上下文
-│   ├── SESSION_MAP.json       # 平台会话映射
-│   ├── INDEX.md               # 对话索引
-│   ├── archive/               # 完整对话归档
-│   └── checkpoints/           # 压缩检查点
-├── tasks/                     # 任务文档
-├── handoffs/                  # 交接文档
-└── artifacts/                 # 证据产物
+~/.codex/governance/multi-agent-collaboration/
+└── projects/<project-key>/
+    ├── project-binding.yaml
+    ├── TEAM.yaml
+    ├── agents/<agent-id>/
+    ├── runs/<run-id>/
+    ├── bridges/
+    ├── project-checkpoints/
+    └── migrations/
 ```
 
-### 初始化 Agent 结构
+`project-binding.yaml` 将治理项目绑定到真实 `project_root`。治理根与项目根任意一方位于另一方内都必须 fail-closed。详见 [storage-protocol.md](references/storage-protocol.md)。
+
+## Coordinated 初始化
+
+只有用户确认后才执行。如果仅需一次 Run，不必先创建长期 Agent 层。
+
+### 可选：长期 Agent 层
 
 ```bash
 python3 <skill-dir>/scripts/init_project_agents.py \
   --project-root "<project-root>" \
+  --governance-root "<governance-home>" \
   --project-id "<project-id>" \
   --project-name "<project-name>" \
-  --agents "A01-coordinator,A02-frontend,A03-backend" \
+  --agents "A01-coordinator,A02-owner,A03-quality" \
   --governance standard \
   --user-confirmed
 ```
 
-详细规范见 [storage-protocol.md](references/storage-protocol.md)。
-
-### 运行资料采集
-
-长期 Agent 的 model、provider、platform、session、profile、workspace 和 runtime kind 必须
-按 [runtime-metadata.md](references/runtime-metadata.md) 记录为可追溯运行资料：
-
-- **自动探测优先，缺失才显式补充**：先读取获准的运行上下文、平台/桥接证据、已验证
-  `SESSION_MAP.json` 和固定 allowlist；只有缺字段或冲突需要裁决时，才请求 CLI 参数或人工输入。
-- **actual 与 declared 分开**：实际观测值使用 `observed_actual`；项目配置、Registry 或默认模型
-  只是 `declared_default`，不能证明本次会话实际使用了该值，也不能覆盖 actual。
-- **不编造完整性**：无法确认写 `unknown`；历史版本未采集写 `not_collected`；多个可信 actual
-  不一致写 `conflict` 并保留候选来源，禁止静默择一。三者都不能写成字符串 `"unknown"`。
-- **Token/费用不估算**：只接受 provider response、runtime meter 或 billing export 的真实回执并
-  绑定来源/hash；无回执时保持 `null` 和 `usage_source: unavailable`。
-- **secret 禁区**：不读取全量环境快照，不持久化 prompt、原始命令/输出、Authorization、Cookie、
-  API key、访问/刷新 token、私钥或带 query 的 URL。命中敏感字段或高置信秘密时 fail-closed，
-  错误和冲突记录也不得回显原值。
-
-运行资料快照和 activity 账本是审计证据，不是 Run 状态真源；变更时追加不可变记录，不原地
-改写旧记录。
-
-## 对话归档与检查点
-
-### 三层上下文模型
-
-1. **完整原文** - 用于审计和深度恢复，不能被摘要替代
-2. **历史检查点** - 上下文压缩后的不可变快照
-3. **当前上下文** - 只保留当前有效信息
-
-### 检查点触发条件
-
-满足任一条件时创建新检查点：
-- 一个任务完成
-- 对话即将进行平台原生压缩
-- 切换问题域
-- Agent 即将交接给另一个 Agent
-- 累计消息或 token 超过配置阈值
-- 出现关键架构决策
-
-### 压缩硬规则
-
-- 先同步完整原文，再生成检查点
-- 检查点不得覆盖原文
-- 新检查点不得覆盖旧检查点
-- 当前上下文必须指向最新检查点
-- 摘要中的结论必须能回溯到原文或文件证据
-- 不能把计划写成已完成
-- 不能丢失失败尝试和未解决事项
-
-详细规范见 [checkpoint-protocol.md](references/checkpoint-protocol.md)。
-
-## 跨平台恢复
-
-### 核心原则
-
-- 项目目录是唯一可移植的长期真源
-- 平台会话 ID 只是恢复线索，不是长期上下文的唯一来源
-- 任何支持读取项目文件的 Agent 都应能恢复工作
-
-### 恢复流程
-
-1. 确认项目根目录
-2. 读取 .multi-agent-collaboration/PROTOCOL.md
-3. 读取 .multi-agent-collaboration/TEAM.yaml
-4. 确认自己的 Agent ID
-5. 读取自己的 ROLE.md、SYSTEM_PROMPT.md
-6. 读取 conversations/CURRENT_CONTEXT.md
-7. 读取最新 checkpoint
-8. 读取当前任务及上一次交接
-9. 检查实际文件、Git 状态和运行环境
-10. 汇报恢复结果后再继续工作
-
-### 漂移处理
-
-若项目文件状态与 checkpoint 不一致：
-- 以实际文件和真实系统状态为事实
-- 不直接覆盖
-- 记录漂移
-- 查阅后续原文和 Git 历史
-- 交由总控判断是否更新上下文
-
-详细规范见 [cross-platform-resume.md](references/cross-platform-resume.md)。
-
-## 绑定平台会话
-
-```bash
-python3 <skill-dir>/scripts/bind_session.py \
-  --project-root "<project-root>" \
-  --agent-id "A01-coordinator" \
-  --platform hermes \
-  --session-id "session-xxx" \
-  --model "<observed-model>" \
-  --provider "<observed-provider>" \
-  --profile default
-```
-
-`--model` 和 `--provider` 必须来自本次会话的显式输入或可信运行证据。Hermes 配置中的默认值
-只属于 declared policy，不能代替 actual；actual 不足或冲突时命令返回
-`RUNTIME_METADATA_REQUIRED`，且不会发布 Runtime Profile 或部分 Session 绑定。
-
-## 验证 Agent 结构
-
-```bash
-python3 <skill-dir>/scripts/validate_agents.py \
-  --project-root "<project-root>"
-```
-
-## 长期项目闭环命令
-
-Run 执行完成后严格按 `Bridge → PCP → index → validator → finalize` 沉淀和收口；不得跳步，
-也不得把 finalize 当作自动补齐前置资料的命令：
-
-```bash
-python3 <skill-dir>/scripts/archive_run_to_agents.py --run-dir "<run-dir>" --agent-map "<run-agent>=<long-term-agent>"
-python3 <skill-dir>/scripts/create_project_checkpoint.py --project-root "<project-root>" --run-id "<run-id>"
-python3 <skill-dir>/scripts/rebuild_index.py --project-root "<project-root>"
-python3 <skill-dir>/scripts/validate_agents.py --project-root "<project-root>"
-python3 <skill-dir>/scripts/finalize_project.py --project-root "<project-root>" --run-id "<run-id>"
-```
-
-长期 Agent 状态或存储版本变化时使用：
-
-```bash
-python3 <skill-dir>/scripts/manage_project_agents.py --help
-python3 <skill-dir>/scripts/migrate_project_agents.py --project-root "<project-root>" --dry-run
-```
-
-需要自动推进一个有界波次时，运行一次 coordinator tick。Hermes/Codex 远程 adapter 只有在
-显式配置外部 CLI/API bridge，且 `SESSION_MAP.json` 同时匹配 Agent、平台、真实 active session
-和精确 workspace 时，才允许尝试唤醒；退出码 0 只证明 bridge 命令成功，不证明远端任务已
-ACK、运行或完成。未配置、校验失败或投递失败时必须回退到真实 document invocation package，
-并报告 `fallback_document`，不能伪报已唤醒：
-
-```bash
-python3 <skill-dir>/scripts/coordinator.py --run-dir "<run-dir>" --once
-```
-
-协调器只自动派发 ready wave、验证冲突并报告 ACK/lease 超时；Review、QA、失败重试和 release 仍必须由真实 evidence/event 驱动，不能由协调器伪造。`--no-emit-events` 只能与 `--dry-run` 一起用于预览。
-
-快车道/自助协同时使用：
-
-```bash
-python3 <skill-dir>/scripts/freeze_scope.py --run-dir "<run-dir>" --requested-path "src" --target-environment local
-python3 <skill-dir>/scripts/preflight_run.py --run-dir "<run-dir>"
-python3 <skill-dir>/scripts/agent_dispatch.py publish --run-dir "<run-dir>" \
-  --publisher-agent "<agent>" --parent-task "TASK-PARENT" --task-id "TASK-CHILD" \
-  --title "..." --objective "..." --owner-agent "<owner>" --owned-path "src/child"
-python3 <skill-dir>/scripts/agent_claim.py claim-task --run-dir "<run-dir>" \
-  --task-id "TASK-POOL" --agent-id "<agent>"
-python3 <skill-dir>/scripts/agent_claim.py claim-thread --run-dir "<run-dir>" \
-  --task-id "TASK-POOL" --agent-id "<agent>" --thread-id "<thread>" \
-  --platform codex --session-id "<active-session>" --workspace "<project-root>"
-python3 <skill-dir>/scripts/agent_claim.py release-task --run-dir "<run-dir>" \
-  --claim-ref "<claim-path>" --agent-id "<agent>" --reason "handoff complete"
-python3 <skill-dir>/scripts/completion_preflight.py --run-dir "<run-dir>" --task-id "TASK-001"
-python3 <skill-dir>/scripts/recover_timeout.py --run-dir "<run-dir>" --task-id "TASK-001" \
-  --action block --side-effect-state unknown
-```
-
-任务池的发布参数为 `--owner-agent pool --assignment-mode claimable --eligible-agent <agent>`；
-Coordinator 不为任务池伪造 Owner。线程 claim 只绑定 thread、platform 和精确 workspace，
-不自动创建线程或显示运行状态。
-
-详细边界见 [runtime-metadata.md](references/runtime-metadata.md)、[run-memory-bridge.md](references/run-memory-bridge.md)、[project-finalization.md](references/project-finalization.md)、[agent-lifecycle.md](references/agent-lifecycle.md) 和 [coordinator-runtime.md](references/coordinator-runtime.md)。
-
-## 快车道与受控自助协同
-
-时效优先时，不把所有门禁都删掉，而是把等待压缩成一次可审计的前置检查和一次完成前检查：
-
-```text
-只读扫描 → freeze_scope → preflight_run → 执行/自助派发 → completion_preflight → 收口
-```
-
-`preflight_run.py` 一次列出任务图、范围、锁、版本和治理缺口；`completion_preflight.py` 在
-提交结果前一次列出 Owner 结果、验证、Review/QA、commit 和发布候选缺口。报告只读，不会
-伪造事件、ACK、lease、结果或发布许可。`recover_timeout.py` 对 ACK/lease 超时先记录
-`blocked_by` 与 `next_action`，检查副作用后才能决定重试或 dead-letter；不得因为快车道自动
-重投可能产生副作用的任务。
-
-### 工作 Agent 自助发布
-
-当 Run 的 `dispatch_policy` 为 `hybrid` 或 `self_service`，已登记且拥有 `task_publish` 的
-工作 Agent 可以在自己的父任务范围内执行 `agent_dispatch.py publish`。它必须：
-
-1. 声明 `parent_task`、父任务 SHA-256、发布者、Owner/任务池和 owned paths。
-2. 通过父 Owner/声明协作者、冻结范围、路径重叠和人工作业门禁检查。
-3. 在发布锁内创建不可变任务，先写 `TASK_READY`，再写 `TASK_DISPATCHED`；固定 Owner 任务
-   才会立即唤醒目标。
-4. 对任务池只写 `TASK_READY`，由具备 `task_claim` 的 eligible Agent 原子抢占后写
-   `TASK_DISPATCHED` 并唤醒自己。
-
-Coordinator 仍是 Strict 和 `central` 策略的唯一派发者，仍独占全局序号、状态 reducer、
-人工许可、重试/dead-letter、`TASK_COMPLETED` 和 `RELEASE_READY`。工作 Agent 可以缩短等待，
-但不能自授更大路径、权限、版本或发布资格。
-
-### 串行抢占与线程绑定
-
-任务抢占使用 `claims/tasks/` 与独立锁，线程抢占使用 `claims/threads/` 与独立锁；同一任务
-或同一 thread 同时只有一个未过期 claimant。抢占记录不可变，包含 eligible agents、lease、
-workspace、platform 和 parent causation。抢占失败返回持有者、过期时间、`blocked_by` 和
-下一动作，不覆盖旧记录。任务 claim 只决定本次有效 Owner，不能绕过 owned paths、forbidden
-paths、Review/QA 或 Strict 门禁。持有者可以使用 `release-task`/`release-thread` 追加不可变
-release 记录主动让出；这不会伪造完成、自动重置任务或绕过 timeout/recovery。
-
-## 工作流
-
-### 1. 只读扫描
-
-在任何写入前：
-
-- 确认项目根目录、Git 状态和项目级指令。
-- 阅读项目已有的 README、AGENTS、架构、协作和发布文档。
-- 扫描模块、测试、构建命令、数据库、部署和高冲突文件。
-- 识别现有 owner、已有线程和未提交改动。
-- 标记事实、计划、未实现和迁移中内容，不把计划写成完成状态。
-
-### 2. 设计角色和任务图
-
-先设计职责，再把不冲突的职责合并到最少的智能体中。角色是能力，不等于必须创建一个新
-Agent：
-
-- 每个任务只有一个主 Owner。
-- Coordinator 默认同时承担架构、路由、集成、版本治理和最终收口。
-- Standard / Strict 保留独立质量检查，但 Reviewer 与 QA 默认由同一个质量智能体承担；
-  质量智能体不能同时是该任务 Owner。Coordinator 未参与任务实现且具备验证能力时，可
-  直接承担这个质量角色。
-- Release、Security、Data、UI 等都是按需能力；现有智能体具备能力且权限不冲突时直接
-  合并，不为角色名称单独创建智能体。
-- 只有权限隔离、职责冲突、owned paths 冲突、独立运行环境、项目强制独立审查，或确有
-  可衡量并行收益时才新增智能体。
-- “方便分工”“角色看起来清晰”或“功能增加了”都不是新增智能体的充分理由。
-- 明确 reviewer、QA、release、collaborating agents 和 handoff_to。
-- 生成有向无环依赖图。
-- 不重叠的 owned paths 可并行。
-- 同一高冲突文件、schema、全局样式、注册表、锁文件和发布账本必须串行。
-- 涉及共享能力时，由共享 owner 处理，产品 Agent 只提出需求。
-
-向用户展示最小智能体编制、每个新增智能体不可合并的理由、目标、owned paths、依赖、
-风险、验证和并行批次。等待明确确认。
-
-### 3. 初始化文档通信
-
-用户确认后运行：
+### Protocol v3 Run
 
 ```bash
 python3 <skill-dir>/scripts/init_run.py \
+  --coordination-mode coordinated \
   --project-root "<project-root>" \
+  --governance-root "<governance-home>" \
+  --project-id "<project-id>" \
+  --project-name "<project-name>" \
   --governance standard \
   --execution-profile normal \
   --dispatch-policy hybrid \
   --transport hybrid \
   --objective "<objective>" \
-  --max-parallel 4 \
-  --max-attempts 3 \
-  --ack-timeout-seconds 300 \
-  --lease-seconds 1800 \
   --versioning-mode tracked \
-  --version-scheme semver \
-  --baseline-version "<current-version>" \
-  --target-version "<target-version>" \
-  --version-source "<version-source-file>" \
-  --versioning-reason "<why-this-run-is-versioned>" \
+  --versioning-reason "<reason>" \
   --user-confirmed
 ```
 
-默认在项目根目录创建 `.multi-agent-collaboration/`。不得覆盖现有 run。`project.yaml` 只保存项目
-身份和固定根范围；每个 Run 都在自己的 `runs/<run-id>/agents.yaml` 保存 Registry，禁止
-继承或复用其他 Run 的角色、权限和原生标识。项目已有正式 handoff/registry 时，保留并
-通过当前 Run 的引用适配，不另造冲突账本。
+Direct 调用 `init_run.py` 会被拒绝，因为 Direct 不需要 Run。
 
-并行数、文档子代理深度、ACK 超时、lease 时长和最大尝试数都必须在初始化时明确或采用
-可见默认值；初始化器拒绝零值和负值。
+## 治理、时效与自助协同
 
-时效优先的 Light/Standard Run 可以显式使用 `--execution-profile fast`。初始化仍保留任务、
-事件、锁、重试策略和版本判断；fast 只改变等待/交接策略，不降低路径、secret、人工高风险
-操作和不可变证据约束。Standard 仍需一次合并 Reviewer/QA 交接。
+- `light`：调研、方案、低风险文档。
+- `standard`：代码修改，保留 owned paths、Git、独立质量和验证证据。
+- `strict`：生产、数据库、资金、权限、密钥、删除和发布，保留安全审查、人工门禁和回滚。
 
-协议 v1/v2 的旧 Run 不会被静默复用或自动升级；初始化器会 fail-closed。保留旧 Run
-为只读历史，并在明确迁移决策后建立新的 v3 文档总线。
+`execution_profile=fast` 可用于 Light/Standard，通过一次 preflight 和一次 completion preflight 减少重复唤醒；不降低路径、Secret、证据或人工门禁。Strict 不可使用 fast。
 
-完整目录、状态机、事件和可靠投递规则见 [document-protocol.md](references/document-protocol.md)。
+`dispatch_policy`：
 
-### 4. 建立 Agent Registry 和任务文档
+- `central`：只有 Coordinator 发布。
+- `hybrid`：工作 Agent 可在已冻结父任务范围内发布子任务。
+- `self_service`：eligible Agent 还可以串行 claim 任务或线程。
 
-为每个角色登记：
+工作 Agent 不必唤醒主架构 Agent 才能发布父任务内的明确子任务，但必须满足父任务 hash、owned/forbidden paths、冻结范围和发布锁。同一任务、线程或高冲突资源必须串行；claim 不能覆盖未过期持有者，也不能扩大权限或发布资格。
 
-- `agent_id`
-- runtime：`codex_thread`、`codex_subagent`、`document` 或 `document_subagent`
-- 职责和能力
-- 可读/可写/禁止路径
-- 父智能体、委派深度和权限继承
-- thread id 或 inbox/outbox
-- 当前任务、依赖、handoff_to
-- 调用模板
+详见 [modes-and-gates.md](references/modes-and-gates.md)和 [document-protocol.md](references/document-protocol.md)。
 
-优先使用 `scripts/manage_run.py add-agent` 和 `create-task`，避免手工编辑协议文件。
-模板见 [agents.yaml.template](assets/agents.yaml.template) 和
-[task.md.template](assets/task.md.template)。任务文档必须有唯一 `task_id` 和
-`idempotency_key`，冻结后 `status` 永远保持 `draft`；实际状态只由事件重放得出。
-ACK、lease、资源锁和死信分别使用 [ack.yaml.template](assets/ack.yaml.template)、
-[lease.yaml.template](assets/lease.yaml.template)、
-[lock.yaml.template](assets/lock.yaml.template) 和
-[dead-letter.yaml.template](assets/dead-letter.yaml.template)。
-Codex 原生对象分别使用
-[codex-thread-binding.yaml.template](assets/codex-thread-binding.yaml.template)、
-[codex-subagent-binding.yaml.template](assets/codex-subagent-binding.yaml.template) 和
-[codex-operation.yaml.template](assets/codex-operation.yaml.template)。
-通用受管子代理使用
-[document-subagent-binding.yaml.template](assets/document-subagent-binding.yaml.template)。
-项目交付版本使用
-[version-contract.yaml.template](assets/version-contract.yaml.template) 和
-[release-candidate.yaml.template](assets/release-candidate.yaml.template)。
+## 版本边界
 
-### 5. 文档先写，再调度
+| 对象 | 权威源 | 何时变化 |
+| --- | --- | --- |
+| Skill 版本 | `VERSION` | Skill 用户可见能力、默认行为、文档、脚本或 Schema 变化 |
+| Protocol 版本 | `scripts/protocol_lib.py` 和协议文档 | 任务、事件、状态机、证据或恢复语义不兼容变化 |
+| Governance Storage Schema | binding 与 storage schema | 外部治理布局或绑定契约不兼容变化 |
+| 项目业务版本 | 目标项目的唯一版本权威源 | 项目交付范围、兼容性或正式发布内容变化 |
 
-严格使用以下顺序（固定 Owner）：
+版本治理不新增 Version Agent。Coordinator 负责识别权威源、冻结版本合同、绑定任务、管理 RC 和重评；只有真正进入项目发布时，现有 Release 能力才落盘版本与执行发布。Direct 也要按项目自身规则判断是否更新业务版本，但不因此创建治理 Run。
 
-1. 写任务文档。
-2. 计算任务内容 SHA-256。
-3. 使用 `emit_event.py` 写 `TASK_READY`；payload 必须是该 task id 对应的精确任务文件。
-4. 事件工具在同一 sequence 锁内校验转换并由 reducer 重建 `state.yaml`。
-5. 写 `TASK_DISPATCHED` 后再通过选定适配器通知目标智能体。
+详见 [version-governance.md](references/version-governance.md)。
 
-不得先唤醒智能体再补任务文档。
+## 事件、冲突与可靠性
 
-任务池或工作 Agent 自助发布时使用受控例外：发布者必须先持有父任务权限并在发布锁内写入
-任务与 `TASK_READY`；固定 Owner 随后可由发布者直接写 `TASK_DISPATCHED`，任务池必须等待
-eligible Agent 通过 `agent_claim.py claim-task` 抢占后再写 `TASK_DISPATCHED`。这不是绕过文档
-协议，而是把 Coordinator 的单点派发动作拆成受权限约束的原子发布动作。
+Coordinated 保持 Protocol v3 语义：
 
-### 6. Codex 原生调度
+- 每个任务只有一个 Owner，冻结后状态只由不可变事件重放得出。
+- 先写任务文档和 `TASK_READY`，再 `TASK_DISPATCHED` 并唤醒执行者。
+- ACK、lease、result、Review、QA、人工许可和 dead letter 必须是可校验 payload。
+- 同一高冲突文件、schema、全局样式、注册表、锁文件、版本源和发布账本必须串行。
+- 超时先检查副作用；不伪造失败，不自动重投可能已产生副作用的任务。
+- 不覆盖用户或其他任务的未提交改动。
 
-只有用户明确批准创建线程后才能调用线程创建工具。
+## 收口、Bridge 与 Candidate
 
-先区分 runtime：
+1. `validate_run.py --phase completion` 通过后，才可将 Run 事实 Bridge 到长期 Agent 层。
+2. Bridge 从 binding 读取真实项目根，分别校验治理源和项目产物，不修改 Run。
+3. Project checkpoint、final report、audit manifest 和 artifact index 只写 Governance Home。
+4. `build_candidate_index.py` 始终只读；它汇总 commit、handoff、Review/QA 和阻塞，不授予发布权限。
+5. 目标项目不得在构建或运行时读取上述文件。
 
-- 用户要求独立、后台或侧边栏任务时使用 `codex_thread`。
-- 当前任务内有界并行使用 `codex_subagent`，不创建用户拥有的侧边栏任务。
-- 两者进入正式 run 时都必须文档双写。
+详见 [run-memory-bridge.md](references/run-memory-bridge.md)和 [project-finalization.md](references/project-finalization.md)。
 
-优先流程：
-
-1. 发现当前可用工具及 schema，不凭记忆构造参数。
-2. 列出可用项目和任务，选择正确项目并查重复用。
-3. 为并行写任务使用独立 worktree；只读任务可使用合适的现有上下文。
-4. 创建或复用任务，原样记录 `thread_id`、`pending_id`、host、cursor 和 environment。
-5. pending worktree 没有真实 thread id 前不发送消息，也不重复创建。
-6. 写 binding 和 operation 文档。
-7. 发送完整任务内容、任务路径、hash、禁止项和交付格式。
-8. 原生消息成功后由 Coordinator 代理写 ACK；观察运行后写 lease。
-9. 使用 wait/read 有界等待，保存 cursor，避免高频轮询。
-10. 结果先持久化到 outbox/events/state，再触发下游。
-11. handoff、标题、固定和归档都写对应原生事件。
-
-完整工具映射、pending、handoff、恢复和归档规则见
-[codex-native-protocol.md](references/codex-native-protocol.md)。
-
-### 7. 通用智能体调度
-
-通用智能体通过文档通信：
-
-1. Coordinator 写目标 inbox。
-2. 在 `next-action.md` 生成明确调用命令。
-3. 智能体校验 `task_id`、协议版本和 `TASK_READY.payload_sha256`。
-4. 智能体写 `ACK`，再执行。
-5. 智能体只写自己的 outbox，不改全局 state。
-6. Coordinator 读取结果、验证后决定下一步。
-
-没有外部执行器时，不声称通用智能体已自动运行；只提供下一条可复制调用命令。
-
-通用智能体需要子代理时必须先选择：
-
-- **透明子代理**：只作为父智能体内部工具，不进入 Registry，不拥有独立全局任务；父智能体
-  对其权限、结果和失败负责。
-- **受管子代理**：使用 `document_subagent` runtime，拥有独立 `agent_id`、任务、inbox、
-  outbox、ACK、lease、result 和 delegation binding；结果必须先交父智能体审查。
-
-子代理权限只能是父智能体权限的子集，不能绕过父智能体直接调用 Reviewer、QA 或
-Release。默认最多一层委派。完整规则见
-[document-subagent-protocol.md](references/document-subagent-protocol.md)。
-
-### 8. 事件驱动路由
-
-按事件自动选择目标：
-
-| 事件 | 下一步 |
-| --- | --- |
-| `HANDOFF_READY` | 调用 Reviewer |
-| `CHANGES_REQUESTED` | 范围不变时 `TASK_RESUMED` 后以新 attempt 退回 Owner；范围变化则建修订任务 |
-| `REVIEW_APPROVED` | 调用 QA |
-| `QA_FAILED` | 范围不变时 `TASK_RESUMED` 后以新 attempt 退回 Owner，再重新 Review |
-| `QA_PASSED` | 由 Coordinator 按任务图进入 `TASK_COMPLETED`、`RELEASE_READY` 或下游任务 |
-| `BLOCKED` | 根据 `blocked_by` 调用对应角色或询问用户 |
-| `WAITING_USER_APPROVAL` | 停止自动链路并询问用户 |
-| `APPROVAL_GRANTED` | 回到 `ready`，重新检查依赖、锁和权限后投递 |
-| `APPROVAL_REJECTED` | 取消任务 |
-| `TASK_RESUMED` | blocked / waiting_external / changes_requested / qa_failed 回到 `ready` |
-| `RELEASE_READY` | 仅在授权和门禁满足时交给 Release |
-| `TASK_COMPLETED` | 更新依赖并调度新就绪任务 |
-| `DOCUMENT_SUBAGENT_RESULT_RECEIVED` | 交给父智能体审查，不直接进入 QA 或 Release |
-| `DOCUMENT_SUBAGENT_FAILED` | 通知父智能体和 Coordinator，停止该委派链 |
-
-禁止智能体自行绕过 Coordinator 直接调用下游 Review、QA、Release 或高风险操作；只有上文
-规定的父任务内自助发布、任务 claim 和 thread claim 可以由工作 Agent 发起。
-
-### 9. 可靠性和冲突控制
-
-- 采用至少一次投递，所有有副作用操作必须幂等。
-- 可重复事件必须提供稳定的 `event-key`；同一尝试内的传输重投复用同一个 key。
-- 每次执行尝试使用新的 `attempt_id`。ACK、lease 和 result 分别写成
-  `<task>-ack-<attempt>.yaml`、`<task>-lease-<attempt>-<lease>.yaml` 和
-  `<task>-result-<attempt>.md`，旧尝试永不覆盖。
-- 目标收到任务后写当前尝试 ACK；Coordinator 再用 `manage_run.py write-lease` 创建同一
-  `attempt_id` 的不可变 lease，并作为 `LEASE_ACQUIRED` / `LEASE_RENEWED` 的 payload。
-- 失败后只有 `RETRY_SCHEDULED → TASK_RESUMED → TASK_DISPATCHED` 才能开始新尝试；达到
-  `max_attempts` 后禁止继续重试，必须进入 `dead-letter/`。
-- 一个事件一个文件，禁止多人追加同一文件。
-- Coordinator 独占 `state.yaml`、inbox 和全局事件序号。
-- 每个智能体只写自己的 outbox。
-- 高冲突路径使用锁；锁未释放时任务保持等待。
-- 任务发布、任务 claim、thread claim 使用彼此独立的串行锁；claimable 任务的有效 Owner
-  由最新未过期 claim 解析，ACK/lease/result 必须落在该 Owner 的 outbox。
-- 写入临时文件后原子重命名。
-- ACK、result、Review、QA、人工许可和 dead letter 必须作为对应事件的 hashed payload，
-  事件产生后不得原地修改。
-- 不覆盖用户或其他线程的未提交改动。
-
-### 10. Review、QA 和人工门禁
-
-- Reviewer 依据任务文档、diff/commit、结果和证据审查，不以聊天自述为事实。
-- QA 依据验收标准验证，不自动放宽标准。
-- 生产、数据库、资金、权限扩大、密钥、删除、发布和回滚必须经过人工门禁。
-- `local_only`、blocked、forbidden 或证据不完整的任务不得进入发布。
-
-### 11. 恢复和收尾
-
-总控中断后按以下顺序恢复：
-
-```text
-protocol.yaml
-→ project.yaml
-→ manifest.yaml
-→ agents.yaml
-→ state.yaml
-→ events/
-→ tasks/
-→ inbox/outbox
-→ delegations/
-→ operations/
-→ native/threads
-→ native/operations
-→ next-action.md
-```
-
-完成时：
-
-- 验证所有必需任务、Review、QA 和人工许可。
-- 生成 `summary.md`，列出完成项、commit、验证、风险和未完成项。
-- 清理临时锁，不删除历史事件。
-- 把 run 标记为只读归档。
-- 不把临时通信文件误当成产品发布状态。
-
-## 校验
-
-初始化后运行：
+## 旧资料迁移
 
 ```bash
-python3 <skill-dir>/scripts/validate_run.py \
-  "<project-root>/.multi-agent-collaboration/runs/<run-id>"
+python3 <skill-dir>/scripts/migrate_governance_storage.py \
+  --project-root "<project-root>" \
+  --project-id "<project-id>" \
+  --project-name "<project-name>" \
+  --governance-root "<governance-home>" \
+  --dry-run
 ```
 
-验证器默认根据状态自动选择 `structure`、`dispatch`、`completion` 或 `release` 阶段，也可
-显式传 `--phase`。`completion` 和 `release` 采用 fail-closed：缺少任务、权限、hash、
-Review、QA、人工许可、锁、commit 或治理证据时返回失败。
+审查文件清单、目标和 SHA-256 后，才将 `--dry-run` 换为 `--apply`。迁移器使用外部 staging、逐文件验证和原子发布；不删除或改写旧目录，拒绝 symlink、特殊文件和目标冲突。
 
-创建 Agent、任务、门禁、证据、ACK、result、锁、状态恢复和归档统一使用：
+## 恢复与跨平台
 
-```bash
-python3 <skill-dir>/scripts/manage_run.py --help
-```
+恢复时先从 project binding 确认项目身份，再读 TEAM、ROLE、CURRENT_CONTEXT、最新 checkpoint、handoff 和 Run state。平台会话只是加速层，不是唯一真源。不从私有会话库或未授权路径猜测事实。
 
-候选索引和迁移只读/显式执行：
+详见 [cross-platform-resume.md](references/cross-platform-resume.md)。
 
-```bash
-python3 <skill-dir>/scripts/build_candidate_index.py --run-dir "<run-dir>"
-python3 <skill-dir>/scripts/migrate_run_optimization.py --run-dir "<run-dir>" --dry-run
-python3 <skill-dir>/scripts/migrate_run_optimization.py --run-dir "<run-dir>" --apply
-```
+## 完成前验证
 
-创建事件时优先使用：
+- Direct：验证项目改动和测试，并确认项目中没有新治理资料。
+- Coordinated：同时验证 binding、Agent 层、Run 层、hash、路径范围、Review/QA 与人工门禁。
+- 不把“已创建任务文档”说成“Agent 已执行”，不把本地验证说成远程或生产验收。
 
-```bash
-python3 <skill-dir>/scripts/emit_event.py \
-  --run-dir "<run-dir>" \
-  --task-id TASK-001 \
-  --event TASK_READY \
-  --from-agent coordinator \
-  --to-agent owner \
-  --summary "Task is ready" \
-  --payload-file "<task-file>"
-```
-
-校验失败时先修复协议和文档，不继续自动调度。
-
-## 最终回复
-
-向用户清楚报告：
-
-- 使用的 transport 和 governance。
-- execution profile（`fast`/`normal`）和 dispatch policy（`central`/`hybrid`/`self_service`）。
-- 已创建或复用的线程/通用智能体。
-- 当前任务图和状态。
-- 哪些任务自动继续，哪些等待用户或通用智能体。
-- commit、handoff、测试和证据。
-- 阻塞、风险和下一条动作。
-
-不要把“已写任务文档”表述成“目标智能体已经执行完成”。
+脚本索引见 [scripts/README.md](scripts/README.md)，详细规范索引见 [references/README.md](references/README.md)。

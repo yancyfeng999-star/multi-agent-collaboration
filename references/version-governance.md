@@ -1,12 +1,12 @@
 # 集中式项目版本治理
 
-## 0. Skill 与 Protocol 版本边界
+## 0. Skill、Protocol、Storage 与项目版本边界
 
-本次优化把 Skill 版本更新为 `1.4.1`（权威源：根目录 `VERSION`），Protocol 仍为 `3`。
-`1.4.0` 引入执行 profile、派发策略、preflight、范围冻结、任务/线程 claim、超时恢复和
-候选索引；它兼容旧的固定 Owner v3 Run。旧 Run 不会被原地改写，只有显式运行
-`migrate_run_optimization.py --apply` 才补充缺失的可选字段和 retry policy，并保留原有事件
-与任务 hash。迁移不改变目标项目业务版本，也不授予发布权限。
+四个版本对象必须独立：Skill 版本以根 `VERSION` 为权威源；Protocol 版本当前为 `3`；Governance Storage Schema 当前为 `1.0`；项目业务版本只以目标项目自身权威源为准。
+
+Direct 默认不创建版本合同或 Run，但仍必须按项目自身规则判断本次交付是否应更新业务版本。Coordinated 才使用 `tracked`/`not_applicable`、version contract、Release Train 和 RC，且这些资料只写项目外 Governance Home。
+
+旧 Run 不会被原地改写。`migrate_run_optimization.py` 只迁移 v3 Run 的可选执行字段；`migrate_governance_storage.py` 将旧项目内治理资料复制并校验到 Governance Home。两种迁移都不改变项目业务版本，也不授予发布权限。
 
 运行时的项目版本继续由 Coordinator 集中治理；`fast`、self-service、claim 或 retry attempt
 都不能直接递增项目版本。只有交付范围、兼容性或项目自身版本规则触发时，才建立新的版本合同。

@@ -1,12 +1,12 @@
 # Scripts 使用说明
 
-脚本实现协议 v3 的本地文档总线。所有命令只应在用户确认的项目范围内执行。
+脚本实现协议 v3 的外置开发治理文档总线。Direct 不需要运行初始化脚本；Coordinated 命令必须使用项目外 Governance Home。
 
 ## 核心脚本
 
 | 脚本 | 职责 |
 | --- | --- |
-| `init_run.py` | 用户确认后初始化项目总线、Run、版本合同和初始门禁 |
+| `init_run.py` | 用户确认 Coordinated 后在 Governance Home 初始化 Run、版本合同和门禁；Direct 拒绝创建 Run |
 | `manage_run.py` | 创建 Agent/任务/证据/RC，管理 ACK、lease、锁、恢复和归档 |
 | `emit_event.py` | 校验并原子写入事件，然后重建派生状态 |
 | `validate_run.py` | 对 structure、dispatch、completion 或 release 执行 fail-closed 校验 |
@@ -16,7 +16,7 @@
 
 | 脚本 | 职责 |
 | --- | --- |
-| `init_project_agents.py` | 初始化项目 Agent 结构、身份文件及项目内 schemas/templates |
+| `init_project_agents.py` | 在 Governance Home 初始化长期 Agent 身份、会话、handoff 及 schemas/templates，不写目标项目 |
 | `bind_session.py` | 绑定平台会话到 Agent，保留历史映射 |
 | `sync_conversation.py` | 导入会话导出、默认脱敏并写入不可变 archive |
 | `create_checkpoint.py` | 从已同步 archive 创建链式不可变检查点 |
@@ -79,6 +79,8 @@ init_run.py
 
 ```bash
 python3 scripts/init_run.py --project-root "<project-root>" \
+  --coordination-mode coordinated --governance-root "<governance-home>" \
+  --project-id "<project-id>" \
   --governance light --execution-profile fast --dispatch-policy hybrid \
   --transport document_bus --objective "<objective>" \
   --versioning-mode not_applicable --versioning-reason "<reason>" --user-confirmed

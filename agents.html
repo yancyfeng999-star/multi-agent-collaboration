@@ -742,7 +742,7 @@
       <div>
         <p class="eyebrow">Choose your specialist</p>
         <h1>认识<br><em>Agent</em>。</h1>
-        <p class="hero-copy">先选一个合适的角色，再把明确的问题交给它。这里是使用入口，不是监控台：不显示运行状态，不展示任务编排，也不替你决定要不要增加智能体。</p>
+        <p class="hero-copy">先选一个合适的角色，再把明确的问题交给它。这里默认生成 Direct 人工启动指令，不是监控台：不显示运行状态，不展示任务编排，也不替你决定要不要增加智能体。</p>
       </div>
       <aside class="how-to" aria-label="使用方式">
         <h2>三步开始</h2>
@@ -822,8 +822,8 @@
     </dialog>
 
     <footer class="notes">
-      <p><strong>使用边界：</strong>这张页面只负责介绍 Agent 和提供启动指令。它不读取项目 Run、不显示谁正在做什么，也不自动分配任务。</p>
-      <p><strong>项目映射：</strong>具体项目中的 A01、A02 等稳定身份，以项目自己的 `TEAM.yaml` 和角色文件为准；本页是通用角色入口。</p>
+      <p><strong>使用边界：</strong>这张页面只负责介绍 Agent 和提供 Direct 启动指令。它不读取项目 Run、不显示谁正在做什么，也不自动分配任务。</p>
+      <p><strong>存储边界：</strong>页面和启动指令不写入目标项目或 Governance Home；只有用户后续明确选择 Coordinated 高级治理时，才会在项目外创建治理资料。</p>
     </footer>
   </main>
 
@@ -963,7 +963,7 @@
         '',
         agent.prompt,
         '',
-        '这是一次用户手动启动。除非我明确授权，不要创建多个线程、自动增加 Agent、自动编排任务或执行高风险操作。'
+        '这是一次 Direct 用户手动启动。不要创建或修改项目内治理资料，不要写入 Governance Home。除非我明确授权切换到 Coordinated，不要创建多个线程、自动增加 Agent、自动编排任务或执行高风险操作。'
       ].join('\n');
     }
 

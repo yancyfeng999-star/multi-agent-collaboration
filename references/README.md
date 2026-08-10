@@ -1,7 +1,6 @@
 # References 导航
 
-本目录保存协议的规范性说明。执行时先读 [SKILL.md](../SKILL.md)，再按当前 transport、
-governance 和任务类型选择必要文档，不需要一次加载全部内容。
+本目录保存协议的规范性说明。执行时先读 [SKILL.md](../SKILL.md)，先选择 Direct 或 Coordinated，再按当前 transport、governance 和任务类型选择必要文档，不需要一次加载全部内容。Direct 默认不创建治理资料，通常无需读取 Run/存储细节。
 
 | 文档 | 何时读取 | 主要内容 |
 | --- | --- | --- |
@@ -13,7 +12,7 @@ governance 和任务类型选择必要文档，不需要一次加载全部内容
 | [adapters.md](adapters.md) | 选择 transport | Codex 原生、文档总线和 hybrid 双写 |
 | [codex-native-protocol.md](codex-native-protocol.md) | 使用 Codex 任务或子代理 | 原生工具发现、消息、等待、handoff 和恢复 |
 | [document-subagent-protocol.md](document-subagent-protocol.md) | 通用智能体需要受管子代理 | 父子权限、binding、结果审查和关闭 |
-| [storage-protocol.md](storage-protocol.md) | 初始化项目 Agent | 目录结构、文件职责、写入所有权、索引策略 |
+| [storage-protocol.md](storage-protocol.md) | 初始化 Coordinated Agent/Run 或迁移 legacy 资料 | 外部 Governance Home、binding、写入所有权与安全迁移 |
 | [checkpoint-protocol.md](checkpoint-protocol.md) | 上下文压缩 | 三层上下文模型、检查点格式、触发条件、压缩规则 |
 | [cross-platform-resume.md](cross-platform-resume.md) | 跨平台恢复 | 恢复流程、漂移处理、平台适配器、最小恢复提示词 |
 | [run-memory-bridge.md](run-memory-bridge.md) | Run 完成后沉淀长期记忆 | Run→Agent 只读桥接、哈希、幂等与边界 |

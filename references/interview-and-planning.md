@@ -16,11 +16,12 @@
 必须明确：
 
 - 项目根目录和是否允许访问；projectless 任务使用用户指定的 coordination/output 目录。
+- coordination mode：默认 `direct`；只在有多 Agent、受管交接、独立质量、恢复或审计需求时选择 `coordinated`。
 - 目标、非目标、交付物和完成定义。
 - 只读、规划、实施、测试或发布边界。
 - 禁止的路径、数据、远端和命令。
 - 必须通过的测试或人工验收。
-- `light`、`standard`、`strict`。
+- Coordinated 才需要选择 `light`、`standard`、`strict`。
 - execution profile：时效优先的 `fast` 或完整证据链的 `normal`（Strict 只能 normal）。
 - dispatch policy：`central`、`hybrid` 或 `self_service`，以及哪些现有 Agent 具备
   `task_publish`、`task_claim`、`thread_claim`。
@@ -34,6 +35,8 @@
 线程仍需要用户明确确认。
 
 用户没有明确授权时，不创建线程、不修改项目、不运行发布。
+
+Direct 不询问与当前任务无关的完整治理问卷，不创建 Agent、Run、handoff、candidate 或 checkpoint。Coordinated 启用前必须确认 Governance Home 在项目外。
 
 ## 2. 项目扫描
 

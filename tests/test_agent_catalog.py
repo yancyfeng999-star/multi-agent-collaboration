@@ -33,6 +33,9 @@ class AgentCatalogTests(unittest.TestCase):
         self.assertNotIn("current_task", self.html)
         self.assertNotIn("task_states", self.html)
         self.assertNotIn("并行槽位", self.html)
+        self.assertIn("Direct", self.html)
+        self.assertIn("Governance Home", self.html)
+        self.assertIn("不写入目标项目", self.html)
 
     def test_skill_and_readme_define_manual_catalog_as_default(self) -> None:
         for text in (self.skill, self.readme):

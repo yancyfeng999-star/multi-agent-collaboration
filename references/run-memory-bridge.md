@@ -1,62 +1,49 @@
 # Protocol v3 Run → 长期 Agent 记忆桥接
 
-`archive_run_to_agents.py` 把已经通过 **completion** 验证的 Protocol v3 Run 事实沉淀到项目内的长期 Agent 存储。它不是 Run archive 命令，也不会改变 Run 的任何文件。
+`archive_run_to_agents.py` 将已通过 completion 验证的 Run 事实沉淀到同一外部 governance project 的长期 Agent 层。它不是 Run archive 命令，不修改 Run。
 
 ## 前置条件
 
-1. 项目已用 `init_project_agents.py` 初始化长期 Agent（`.multi-agent-collaboration/TEAM.yaml` 与 `agents/Axx-*/`）。
-2. Run 与长期 Agent 存储位于同一个项目的 `.multi-agent-collaboration/`。
-3. Run 的所有任务均已进入终态，并能通过：
+1. `project-binding.yaml` 存在且指向真实项目根。
+2. `TEAM.yaml` 与 `agents/Axx-*/` 已在同一 governance project 初始化。
+3. Run 位于该 governance project 的 `runs/<run-id>/`，所有任务进入终态并通过：
 
 ```bash
-python3 scripts/validate_run.py <run-dir> --phase completion
+python3 scripts/validate_run.py "<run-dir>" --phase completion
 ```
 
-4. 每个任务 Owner 都有明确的 run-local → persistent Agent 映射。脚本不按角色名猜测身份。
+4. 每个 run-local Owner 都有显式的 persistent Agent 映射；脚本不按角色名猜测身份。
 
 ## 使用
 
-先预览（不创建目录、不写文件）：
-
 ```bash
 python3 scripts/archive_run_to_agents.py \
-  --run-dir <project>/.multi-agent-collaboration/runs/RUN-123 \
+  --run-dir "<governance-home>/projects/<project-key>/runs/RUN-123" \
   --agent-map worker=A02-worker \
-  --agent-map reviewer=A03-reviewer \
+  --agent-map quality=A03-quality \
   --dry-run
 ```
 
-确认后执行同一命令并移除 `--dry-run`。成功时 stdout 是桥接 manifest 路径：
+确认后移除 `--dry-run`。成功输出：
 
 ```text
-<project>/.multi-agent-collaboration/bridges/RUN-123.json
+<governance-project>/bridges/RUN-123.json
 ```
 
-## 写入布局
+## 路径与哈希
 
-对于任务 `TASK-001`、Run `RUN-123`、目标长期 Agent `A02-worker`：
+- Run task/result/evidence 是 governance source，必须位于当前 governance project。
+- changed files 和业务 artifact 是 project source，必须位于 binding `allowed_roots`。
+- Bridge 使用 `governance://` 和 `project://` 相对引用区分两类来源，并保存 SHA-256。
+- 外部业务 artifact 本体不复制到治理层，只记录规范化路径和 hash。
 
-- `agents/A02-worker/tasks/RUN-123--TASK-001.md`：冻结 task 的字节级镜像。
-- `agents/A02-worker/handoffs/RUN-123--TASK-001--ATTEMPT-001.md`：owner result/handoff 镜像。
-- `agents/A02-worker/artifacts/RUN-123--TASK-001--evidence--<evidence-id>.yaml`：任务 evidence 镜像。
-- `agents/A02-worker/artifacts/RUN-123--TASK-001--bundle.json`：evidence、handoff、外部 artifact 的来源路径、相对路径和 SHA-256 元数据。
-- `bridges/RUN-123.json`：全 Run 桥接 manifest，记录 Run id、最终 event sequence、Run/manifest/state 来源路径与哈希、Agent 映射和每个任务的归档目标。
+## 不变量
 
-外部 artifact 本体不复制；bundle 保存其规范化 source path 与 SHA-256 引用。task、result 和 evidence 属于 Run 冻结事实，按原字节镜像。
+- 每次执行（包括幂等重跑）都重新运行 completion validator。
+- Run inventory hash 排除锁文件，不修改 Run 任何内容。
+- 任意产物 hash 不匹配时，首次写入前失败。
+- 所有预期目标存在且 hash 一致时幂等成功；部分目标或内容冲突时 fail-closed，不覆盖。
+- 写入由 governance project 级 `.run-memory-bridge.lock` 串行。
+- dry-run 只验证、构造计划和检查冲突，无副作用。
 
-## 安全与不变量
-
-- **先验证后写入**：每次执行（包括幂等重跑）都重新运行 completion validator。
-- **Run 只读**：脚本不写 `manifest.yaml`、`state.yaml`、`events/`，也不写 Run 内其他文件；Run inventory hash 排除锁文件 `.sequence.lock`。
-- **哈希绑定**：evidence 声明的 `artifact_hashes` 必须与实际 artifact 一致，否则在首次写入前失败。
-- **显式身份映射**：映射目标必须存在于 `TEAM.yaml`，遗漏任务 Owner 或指向未知 Agent 都失败。
-- **幂等**：所有预期目标均存在且哈希完全一致时直接成功，不覆盖、不更新时间戳。
-- **fail-closed 冲突**：任一目标内容不同，或只存在部分目标集合，整次执行失败且不覆盖冲突文件。
-- **并发串行化**：真实写入使用项目级 `.run-memory-bridge.lock`。
-- **dry-run 无副作用**：只验证、构造计划并检查已有目标冲突，stdout 输出 JSON 计划。
-
-## 篡改响应
-
-- Run task/result/evidence/event 或 evidence 引用的 artifact 被篡改：Run validator 或 artifact hash 检查失败，不写长期存储。
-- 已桥接镜像或 bridge manifest 被篡改：下一次运行报告 immutable destination conflict，不自动修复。
-- 发生合法更正时，应生成新的 Run 或新的不可变协议记录；不要覆盖已桥接事实。
+合法更正必须创建新 Run 或新的不可变协议记录，不覆盖已桥接事实。

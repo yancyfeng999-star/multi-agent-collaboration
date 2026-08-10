@@ -1,15 +1,43 @@
-# 项目本地存储协议
+# 外置治理存储协议
 
-## 权威来源
+## 1. 存储边界
 
-优先级：实际项目文件/外部状态与 Git → 协议 v3 事件与 `state.yaml` → 项目级上下文 → Agent 当前上下文与检查点 → 平台会话描述。
+Direct 默认不创建治理资料。Coordinated 将所有 Agent、Run、handoff、checkpoint、Bridge、candidate 和审计资料保存到项目外 Governance Home。
 
-平台会话是运行时；`.multi-agent-collaboration/` 是可移植的长期协作档案。复制项目目录后，任何可读取项目文件的平台都应能恢复工作。
-
-## 持久层
+默认根：
 
 ```text
-.multi-agent-collaboration/
+~/.codex/governance/multi-agent-collaboration/
+```
+
+网站构建、启动、测试、部署和线上运行不得读取 Governance Home。Skill 不自动创建或修改目标项目 `AGENTS.md`。
+
+## 2. 项目绑定
+
+```text
+<governance-home>/projects/<project-key>/project-binding.yaml
+```
+
+binding 使用 Governance Storage Schema `1.0`，必须包含：
+
+- `storage_schema`
+- `project_id`
+- `project_name`
+- `project_root`
+- `project_key`
+- `allowed_roots`（只能是规范化 `project_root`）
+- `created_at`
+
+治理根与项目根不能重叠；任意一方位于另一方内都 fail-closed。同一 `project_id` 对应多个不同项目根时，使用稳定 path hash 后缀避免覆盖。
+
+## 3. 治理项目布局
+
+```text
+projects/<project-key>/
+├── project-binding.yaml
+├── protocol.yaml
+├── project.yaml
+├── current-run
 ├── TEAM.yaml
 ├── PROTOCOL.md
 ├── CURRENT_PROJECT_CONTEXT.md
@@ -22,32 +50,38 @@
 │   ├── ROLE.md
 │   ├── SYSTEM_PROMPT.md
 │   ├── CHECKLIST.md
-│   ├── conversations/{CURRENT_CONTEXT.md,SESSION_MAP.json,INDEX.md,archive/,checkpoints/}
+│   ├── AGENT_PROFILE.json
+│   ├── runtime/
+│   ├── activity/
+│   ├── conversations/
 │   ├── tasks/
 │   ├── handoffs/
 │   └── artifacts/
-└── runs/<run-id>/...
+├── runs/<run-id>/
+├── bridges/
+├── project-checkpoints/
+└── migrations/
 ```
 
-`runs/` 继续承担协议 v3 的不可变任务、事件、ACK、lease、result、Review、QA、版本合同、
-scope freeze、retry policy 和 `claims/tasks`/`claims/threads`；`agents/` 承担跨 Run 的稳定
-身份、可恢复上下文和会话镜像。不能用长期上下文覆盖 Run 事实。claim 文件只记录短期
-串行占用和 lease，不是第二套任务状态机。
+Run 保存执行事实；Agents 保存跨 Run 身份和恢复资料。长期层不得覆盖 Run 状态。
 
-## 写入所有权
+## 4. 写入所有权
 
-- 初始化器：TEAM、PROTOCOL、schemas、templates、初始 Agent 身份文件。
-- Coordinator：项目上下文、决策、Agent 任务。
-- 对应 Agent：自己的 CURRENT_CONTEXT、handoffs、artifacts。
-- 专用脚本：SESSION_MAP、archive、checkpoints、INDEX/index.jsonl。
-- 协议 v3 文件仍遵守 `document-protocol.md` 的唯一写入者规则。
+- binding 和初始身份：初始化器。
+- Run 任务、事件和派生状态：Protocol v3 唯一写入者规则。
+- Agent 长期资料：对应 Agent 或专用事务脚本。
+- Bridge、PCP、final audit 和 migration manifest：对应专用脚本。
 
-不可变 archive、checkpoint 和 handoff 一旦被引用，不得覆盖；更正应生成新文件并保留替代关系。
+不可变 archive、checkpoint、handoff、Runtime Profile、Activity、Bridge、PCP 和 final audit 不得覆盖。更正必须新建记录并保留替代关系。
 
-## 检索顺序
+## 5. 路径与安全
 
-`CURRENT_PROJECT_CONTEXT.md` → 项目 `INDEX.md` → Agent `CURRENT_CONTEXT.md` → Agent `INDEX.md` → 最新 checkpoint → 当前 task/handoff → 按需读取 archive → 检查真实文件与 Git。
+- 项目产物引用限制在 binding `allowed_roots`。
+- 治理引用限制在当前 governance project。
+- 拒绝 `..`、symlink escape、特殊文件、未授权绝对路径和重叠根。
+- 不落盘 API Key、Token、Cookie、密码、私钥、支付数据或未脱敏个人数据。
+- 会话映射只保存平台、会话 ID、profile、workspace 和同步游标等恢复线索。
 
-## 安全
+## 6. Legacy 迁移
 
-不落盘密码、API Key、Cookie、access/refresh token、私钥、支付数据或未脱敏个人数据。会话同步默认脱敏；会话映射只能保存平台、会话 ID、profile、workspace 和同步游标等恢复线索。
+项目内 `.multi-agent-collaboration/` 仅作旧版只读来源。`migrate_governance_storage.py --dry-run` 生成清单、目标和 SHA-256；`--apply` 复制到 staging，逐文件验证后原子发布。源目录不删除、不改写。

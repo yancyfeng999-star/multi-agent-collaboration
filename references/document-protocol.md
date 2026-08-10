@@ -1,5 +1,7 @@
 # 通用文档通信协议 v3
 
+本协议只用于 Coordinated。Direct 默认不创建 Run 或任何协议文件。Coordinated Run 位于项目外 Governance Home，目标项目的构建与运行不依赖该目录。
+
 ## 1. 事实来源
 
 优先级：
@@ -20,7 +22,8 @@ reducer 生成。任务文件冻结后 `status` 永远为 `draft`，不得用任
 ## 2. Run 隔离和目录
 
 ```text
-.multi-agent-collaboration/
+<governance-home>/projects/<project-key>/
+├── project-binding.yaml
 ├── protocol.yaml
 ├── project.yaml
 ├── current-run
@@ -55,7 +58,7 @@ reducer 生成。任务文件冻结后 `status` 永远为 `draft`，不得用任
         └── archive/
 ```
 
-`protocol.yaml` 和 `project.yaml` 是项目级固定身份。Agent Registry 必须位于 Run 内，不能
+`project-binding.yaml` 将治理项目绑定到真实项目根；`protocol.yaml` 和 `project.yaml` 是治理项目级固定身份。Agent Registry 必须位于 Run 内，不能
 从上一个 Run 继承角色、路径、thread id、agent id 或权限。`current-run` 只是便利指针，
 不是权限或恢复事实。
 

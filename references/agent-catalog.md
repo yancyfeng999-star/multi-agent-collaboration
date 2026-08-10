@@ -2,11 +2,11 @@
 
 ## 定位
 
-`agents.html` 是面向用户的 Agent 角色目录和启动入口。它帮助用户理解角色、选择角色、
+`agents.html` 是面向用户的 Agent 角色目录和 Direct 启动入口。它帮助用户理解角色、选择角色、
 填写最小项目上下文并复制启动指令；它不是 Run 控制台，不显示当前任务、运行状态、并行槽位
 或任务图，也不自动创建线程、增加 Agent 或调度下游。
 
-页面不是事实源。项目中的稳定身份、角色边界和历史仍以 `TEAM.yaml`、
+页面不是事实源，也不写入目标项目或 Governance Home。Coordinated 中的稳定身份、角色边界和历史以外部 Governance Home 的 `TEAM.yaml`、
 `agents/<agent-id>/AGENT_PROFILE.json` 与 `ROLE.md` 为准。
 使用 `init_project_agents.py` 或 `manage_project_agents.py add` 初始化时，会为 Profile 写入
 无运行状态的目录投影；项目负责人应在首次使用前把通用默认值校准为项目事实。
@@ -67,13 +67,14 @@ Profile 的 `catalog` 对象由 `assets/schemas/agent-profile.schema.json` 校�
 - 不自动创建线程或任务图。
 - 不自动增加 Agent。
 - 不扩大用户给出的写入范围。
+- Direct 不创建 Agent、Run、handoff、candidate、checkpoint 或任何治理资料。
 - 发布、生产、数据库、密钥、删除和回滚需要再次明确授权。
 - 结果必须报告真实修改、验证、风险和未完成项。
 
 ## 项目专属目录
 
-项目有 `TEAM.yaml` 时，可以将稳定角色字段投影到项目专属 Agent 页面。投影只包含身份、
-职责、能力和调用说明，不包含执行状态。项目没有长期 Agent 资料时，继续使用通用角色卡，
+Coordinated Governance Home 有 `TEAM.yaml` 时，可以将稳定角色字段投影到临时用户视图。投影只包含身份、
+职责、能力和调用说明，不包含执行状态。Governance Home 没有长期 Agent 资料时，继续使用通用角色卡，
 不得凭空生成项目 Agent 数量或职责。
 
 ## 何时进入高级治理

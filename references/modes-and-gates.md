@@ -1,5 +1,12 @@
 # 治理模式和人工门禁
 
+## -1. Coordination mode
+
+- `direct`：默认，不创建治理资料，不要求 `governance`、`execution_profile` 或 `dispatch_policy`。
+- `coordinated`：只在需要多 Agent、交接、门禁、恢复或审计时使用，并将资料写入项目外 Governance Home。
+
+下文 Light/Standard/Strict、execution profile 和 dispatch policy 只适用于 Coordinated。Direct 仍然遵守项目自身的高风险授权和版本规则，但不因此创建 Run。
+
 ## 0. 执行配置与派发策略
 
 治理模式决定证据和人工门禁；执行配置决定等待和交接策略，二者不能互相替代：
@@ -98,12 +105,12 @@ Standard 可以使用 `hybrid`/`self_service` 缩短派发等待，但工作 Age
 - dispatch 前 manifest 必须有 change id，以及 registry、Git 状态、环境影响、回滚和安全
   审查的有效文件引用。
 - dispatch 时必须处于可访问、非 detached 的项目 Git worktree；manifest `git_branch`
-  必须等于当前分支，且除文档总线外的工作区必须真实干净。
+  必须等于当前分支，且工作区必须真实干净；治理资料已外置，不得作为项目 dirty 例外。
 - 风险 flag 必须映射到 task 的已批准 gate，且批准时间不晚于 `TASK_READY`。
 - completion 必须引用当前 `git_branch` 可达的真实 Git commit；result 中每个
   `changed_file` 都必须出现在该 commit，且 Strict 结果不得省略 changed files。
 - release 必须有目标环境、批准的 release gate、发布许可和干净工作区证据；验证器同时
-  实时检查除 `.multi-agent-collaboration/` 外的工作区状态。
+  实时检查完整项目工作区状态。旧 `.multi-agent-collaboration/` 若仍位于项目内，只能作为已知 legacy 资料处理，不得被新 Run 写入。
 - release 必须使用 `tracked` 项目版本治理，存在不可变 RC，最新 RC commit 与发布任务
   结果一致，且版本权威源已经写入预留目标版本。
 

@@ -1,4 +1,4 @@
 interface:
   display_name: "多智能体协同 | Multi-Agent Collaboration"
-  short_description: "多智能体协同 1.4.1：快车道、受控自助派发与串行任务/线程抢占"
-  default_prompt: "使用 $multi-agent-collaboration 先打开 Agent 目录并人工选择一个角色；按项目风险选择 fast/normal 与 central/hybrid/self_service，必要时用一次 preflight 和受控任务/线程 claim，不能绕过范围、证据或人工门禁。"
+  short_description: "多智能体协同 1.4.1：Direct 默认零治理写入，Coordinated 按需外置治理"
+  default_prompt: "使用 $multi-agent-collaboration 先读项目并选择路径：单 Agent 明确任务默认 Direct，不创建治理资料；只有多 Agent、受管交接、独立质量、恢复或审计才启用 Coordinated，并将资料保存在项目外 Governance Home。"
