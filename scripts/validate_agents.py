@@ -470,7 +470,7 @@ def validate_runtime_material(bus: Path, agent_dirs: list[Path], tasks: dict[str
             source_ref = source.get("source_ref")
             if isinstance(source_ref, str) and source_ref.startswith(".multi-agent-collaboration/"):
                 source_ref = source_ref.removeprefix(".multi-agent-collaboration/")
-            elif isinstance(source_ref, str) and not source_ref.startswith("agents/"):
+            elif isinstance(source_ref, str) and not source_ref.startswith(("agents/", "runs/", "bridges/")):
                 source_ref = f"agents/{agent.name}/{source_ref}"
             checked_ref(bus, path, source_ref, source.get("source_sha256"), "activity source", errors)
             usage = value.get("usage", {})

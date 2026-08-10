@@ -29,6 +29,7 @@ class ProjectFinalizationTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.project = Path(self.temp.name) / "project"
         self.project.mkdir()
+        self.governance = Path(self.temp.name) / "governance"
         subprocess.run(["git", "init", "-q", str(self.project)], check=True)
         subprocess.run(["git", "-C", str(self.project), "config", "user.email", "fixture@example.invalid"], check=True)
         subprocess.run(["git", "-C", str(self.project), "config", "user.name", "Fixture"], check=True)
@@ -38,10 +39,10 @@ class ProjectFinalizationTests(unittest.TestCase):
         result = subprocess.run(
             ["python3", str(SCRIPTS / "init_project_agents.py"), "--project-root", str(self.project),
              "--project-id", "fixture", "--project-name", "Fixture", "--agents", "A01-coordinator,A02-worker",
-             "--governance", "standard", "--user-confirmed"], capture_output=True, text=True
+             "--governance", "standard", "--governance-root", str(self.governance), "--user-confirmed"], capture_output=True, text=True
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.bus = self.project / ".multi-agent-collaboration"
+        self.bus = self.governance / "projects" / "fixture"
         self.make_run("RUN-001", "completed")
 
     def make_run(self, run_id: str, status: str) -> Path:
@@ -102,21 +103,24 @@ class ProjectFinalizationTests(unittest.TestCase):
                 "tasks": [{"source_task_id": "TASK-1"}],
             }), encoding="utf-8")
         module = load_script("create_project_checkpoint")
-        module.create_project_checkpoint(self.project, list(run_ids))
+        module.create_project_checkpoint(
+            self.project, list(run_ids), governance_root=self.governance, project_id="fixture",
+        )
         rebuilt = subprocess.run(
-            ["python3", str(SCRIPTS / "rebuild_index.py"), "--project-root", str(self.project)],
+            ["python3", str(SCRIPTS / "rebuild_index.py"), "--project-root", str(self.project),
+             "--governance-root", str(self.governance), "--project-id", "fixture"],
             capture_output=True, text=True,
         )
         self.assertEqual(rebuilt.returncode, 0, rebuilt.stdout + rebuilt.stderr)
 
     def test_checkpoint_is_immutable_chained_and_hash_binds_sources(self) -> None:
         module = load_script("create_project_checkpoint")
-        preview = module.create_project_checkpoint(self.project, ["RUN-001"], dry_run=True)
+        preview = module.create_project_checkpoint(self.project, ["RUN-001"], dry_run=True, governance_root=self.governance, project_id="fixture")
         self.assertEqual(preview["checkpoint_id"], "PCP-0001")
         self.assertFalse((self.bus / "project-checkpoints").exists())
 
-        first = module.create_project_checkpoint(self.project, ["RUN-001"])
-        second = module.create_project_checkpoint(self.project, ["RUN-001"])
+        first = module.create_project_checkpoint(self.project, ["RUN-001"], governance_root=self.governance, project_id="fixture")
+        second = module.create_project_checkpoint(self.project, ["RUN-001"], governance_root=self.governance, project_id="fixture")
         self.assertEqual(first["checkpoint_id"], "PCP-0001")
         self.assertEqual(second["checkpoint_id"], "PCP-0002")
         first_doc = (self.bus / first["path"]).read_text(encoding="utf-8")
@@ -128,14 +132,14 @@ class ProjectFinalizationTests(unittest.TestCase):
         self.assertIn("project-checkpoints/PCP-0002.md", current)
         with self.assertRaises(FileExistsError):
             module._write_immutable(self.bus / first["path"], "tamper")
-        subprocess.run(["python3", str(SCRIPTS / "rebuild_index.py"), "--project-root", str(self.project)], check=True, capture_output=True, text=True)
-        valid = subprocess.run(["python3", str(SCRIPTS / "validate_agents.py"), "--project-root", str(self.project)], capture_output=True, text=True)
+        subprocess.run(["python3", str(SCRIPTS / "rebuild_index.py"), "--project-root", str(self.project), "--governance-root", str(self.governance), "--project-id", "fixture"], check=True, capture_output=True, text=True)
+        valid = subprocess.run(["python3", str(SCRIPTS / "validate_agents.py"), "--project-root", str(self.project), "--governance-root", str(self.governance), "--project-id", "fixture"], capture_output=True, text=True)
         self.assertEqual(valid.returncode, 0, valid.stdout + valid.stderr)
 
         latest = self.bus / second["path"]
         latest.chmod(0o600)
         latest.write_text(latest.read_text(encoding="utf-8") + "TAMPERED\n", encoding="utf-8")
-        invalid = subprocess.run(["python3", str(SCRIPTS / "validate_agents.py"), "--project-root", str(self.project)], capture_output=True, text=True)
+        invalid = subprocess.run(["python3", str(SCRIPTS / "validate_agents.py"), "--project-root", str(self.project), "--governance-root", str(self.governance), "--project-id", "fixture"], capture_output=True, text=True)
         self.assertNotEqual(invalid.returncode, 0)
         self.assertIn("content_sha256 mismatch", invalid.stdout)
 
@@ -143,11 +147,11 @@ class ProjectFinalizationTests(unittest.TestCase):
         self.close_persistent_layer("RUN-001")
         module = load_script("finalize_project")
         validators = lambda root, runs: []
-        preview = module.finalize_project(self.project, ["RUN-001"], dry_run=True, validator_runner=validators)
+        preview = module.finalize_project(self.project, ["RUN-001"], dry_run=True, validator_runner=validators, governance_root=self.governance, project_id="fixture")
         self.assertEqual(preview["status"], "ready")
         self.assertFalse((self.bus / "PROJECT_FINAL_REPORT.md").exists())
 
-        result = module.finalize_project(self.project, ["RUN-001"], validator_runner=validators)
+        result = module.finalize_project(self.project, ["RUN-001"], validator_runner=validators, governance_root=self.governance, project_id="fixture")
         self.assertEqual(result["status"], "finalized")
         report = self.bus / "PROJECT_FINAL_REPORT.md"
         manifest = self.bus / "AUDIT_MANIFEST.json"
@@ -162,7 +166,7 @@ class ProjectFinalizationTests(unittest.TestCase):
         self.assertEqual(audit["runs"], ["RUN-001"])
         self.assertTrue(audit["source_hashes"])
         before = {p.name: p.read_bytes() for p in (report, manifest, index)}
-        again = module.finalize_project(self.project, ["RUN-001"], validator_runner=validators)
+        again = module.finalize_project(self.project, ["RUN-001"], validator_runner=validators, governance_root=self.governance, project_id="fixture")
         self.assertEqual(again["status"], "already_finalized")
         self.assertEqual(before, {p.name: p.read_bytes() for p in (report, manifest, index)})
 
@@ -171,17 +175,17 @@ class ProjectFinalizationTests(unittest.TestCase):
         for path in (report, manifest, index):
             path.unlink()
         with self.assertRaisesRegex(ValueError, "terminal"):
-            module.finalize_project(self.project, ["RUN-001"], validator_runner=validators)
+            module.finalize_project(self.project, ["RUN-001"], validator_runner=validators, governance_root=self.governance, project_id="fixture")
 
     def test_validator_failure_and_unapproved_gate_are_fail_closed(self) -> None:
         self.close_persistent_layer("RUN-001")
         module = load_script("finalize_project")
         with self.assertRaisesRegex(ValueError, "validator"):
-            module.finalize_project(self.project, ["RUN-001"], validator_runner=lambda root, runs: ["persistent validator failed"])
+            module.finalize_project(self.project, ["RUN-001"], validator_runner=lambda root, runs: ["persistent validator failed"], governance_root=self.governance, project_id="fixture")
         gate = self.bus / "runs/RUN-001/decisions/GATE.yaml"
         gate.write_text('kind: "human_gate"\nstatus: "pending"\nsummary: "waiting"\n', encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "gate"):
-            module.finalize_project(self.project, ["RUN-001"], validator_runner=lambda root, runs: [])
+            module.finalize_project(self.project, ["RUN-001"], validator_runner=lambda root, runs: [], governance_root=self.governance, project_id="fixture")
 
     def test_release_approval_is_scoped_per_run(self) -> None:
         second = self.make_run("RUN-002", "completed")
@@ -190,36 +194,37 @@ class ProjectFinalizationTests(unittest.TestCase):
         (second / "events/000001-release_ready.yaml").write_text("event: RELEASE_READY\n", encoding="utf-8")
         module = load_script("finalize_project")
         with self.assertRaisesRegex(ValueError, "release gate missing approval: RUN-002"):
-            module.finalize_project(self.project, ["RUN-001", "RUN-002"], validator_runner=lambda root, runs: [])
+            module.finalize_project(self.project, ["RUN-001", "RUN-002"], validator_runner=lambda root, runs: [], governance_root=self.governance, project_id="fixture")
 
     def test_existing_audit_rejects_source_drift(self) -> None:
         self.close_persistent_layer("RUN-001")
         module = load_script("finalize_project")
         validators = lambda root, runs: []
-        module.finalize_project(self.project, ["RUN-001"], validator_runner=validators)
+        module.finalize_project(self.project, ["RUN-001"], validator_runner=validators, governance_root=self.governance, project_id="fixture")
         (self.bus / "runs/RUN-001/summary.md").write_text("tampered after finalization\n", encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "source hash mismatch"):
-            module.finalize_project(self.project, ["RUN-001"], validator_runner=validators)
+            module.finalize_project(self.project, ["RUN-001"], validator_runner=validators, governance_root=self.governance, project_id="fixture")
 
     def test_existing_audit_rejects_empty_artifact_index(self) -> None:
         self.close_persistent_layer("RUN-001")
         module = load_script("finalize_project")
         validators = lambda root, runs: []
-        module.finalize_project(self.project, ["RUN-001"], validator_runner=validators)
+        module.finalize_project(self.project, ["RUN-001"], validator_runner=validators, governance_root=self.governance, project_id="fixture")
         (self.bus / "ARTIFACT_INDEX.jsonl").write_text("", encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "record set"):
-            module.finalize_project(self.project, ["RUN-001"], validator_runner=validators)
+            module.finalize_project(self.project, ["RUN-001"], validator_runner=validators, governance_root=self.governance, project_id="fixture")
 
     def test_final_audit_includes_runtime_activity_profile_pcp_bridge_and_index_hashes(self) -> None:
         self.close_persistent_layer("RUN-001")
         runtime_sources = self.seed_runtime_audit_sources()
         rebuilt = subprocess.run(
-            ["python3", str(SCRIPTS / "rebuild_index.py"), "--project-root", str(self.project)],
+            ["python3", str(SCRIPTS / "rebuild_index.py"), "--project-root", str(self.project),
+             "--governance-root", str(self.governance), "--project-id", "fixture"],
             capture_output=True, text=True,
         )
         self.assertEqual(rebuilt.returncode, 0, rebuilt.stdout + rebuilt.stderr)
         module = load_script("finalize_project")
-        module.finalize_project(self.project, ["RUN-001"], validator_runner=lambda root, runs: [])
+        module.finalize_project(self.project, ["RUN-001"], validator_runner=lambda root, runs: [], governance_root=self.governance, project_id="fixture")
 
         audit = json.loads((self.bus / "AUDIT_MANIFEST.json").read_text(encoding="utf-8"))
         index_records = {
@@ -249,7 +254,8 @@ class ProjectFinalizationTests(unittest.TestCase):
                 self.close_persistent_layer("RUN-001")
                 runtime_sources = self.seed_runtime_audit_sources()
                 rebuilt = subprocess.run(
-                    ["python3", str(SCRIPTS / "rebuild_index.py"), "--project-root", str(self.project)],
+                    ["python3", str(SCRIPTS / "rebuild_index.py"), "--project-root", str(self.project),
+                     "--governance-root", str(self.governance), "--project-id", "fixture"],
                     capture_output=True, text=True,
                 )
                 self.assertEqual(rebuilt.returncode, 0, rebuilt.stdout + rebuilt.stderr)
@@ -260,12 +266,12 @@ class ProjectFinalizationTests(unittest.TestCase):
                     "index": self.bus / "index.jsonl",
                 }
                 module = load_script("finalize_project")
-                module.finalize_project(self.project, ["RUN-001"], validator_runner=lambda root, runs: [])
+                module.finalize_project(self.project, ["RUN-001"], validator_runner=lambda root, runs: [], governance_root=self.governance, project_id="fixture")
                 source = sources[source_key]
                 source.chmod(0o600)
                 source.write_bytes(source.read_bytes() + b"\nDRIFT\n")
                 with self.assertRaisesRegex(ValueError, "source hash mismatch"):
-                    module.finalize_project(self.project, ["RUN-001"], validator_runner=lambda root, runs: [])
+                    module.finalize_project(self.project, ["RUN-001"], validator_runner=lambda root, runs: [], governance_root=self.governance, project_id="fixture")
 
     def test_project_checkpoint_rolls_back_if_context_publish_fails(self) -> None:
         module = load_script("create_project_checkpoint")
@@ -279,7 +285,7 @@ class ProjectFinalizationTests(unittest.TestCase):
         from unittest.mock import patch
         with patch.object(module, "_atomic", side_effect=fail_context):
             with self.assertRaisesRegex(OSError, "context publish failed"):
-                module.create_project_checkpoint(self.project, ["RUN-001"])
+                module.create_project_checkpoint(self.project, ["RUN-001"], governance_root=self.governance, project_id="fixture")
         self.assertFalse((self.bus / "project-checkpoints/PCP-0001.md").exists())
 
     def test_finalization_bundle_rolls_back_on_mid_write_failure(self) -> None:
@@ -298,7 +304,7 @@ class ProjectFinalizationTests(unittest.TestCase):
         from unittest.mock import patch
         with patch.object(module, "_atomic", side_effect=fail_second):
             with self.assertRaisesRegex(OSError, "disk full"):
-                module.finalize_project(self.project, ["RUN-001"], validator_runner=lambda root, runs: [])
+                module.finalize_project(self.project, ["RUN-001"], validator_runner=lambda root, runs: [], governance_root=self.governance, project_id="fixture")
         for name in module.FINAL_FILES:
             self.assertFalse((self.bus / name).exists())
 

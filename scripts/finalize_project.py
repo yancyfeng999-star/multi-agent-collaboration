@@ -13,9 +13,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from project_memory_lib import exclusive_lock
+from project_memory_lib import bus_root, exclusive_lock, project_root as resolve_project_root
 
-BUS = ".multi-agent-collaboration"
 FINAL_FILES = ("PROJECT_FINAL_REPORT.md", "AUDIT_MANIFEST.json", "ARTIFACT_INDEX.jsonl")
 ALLOWED_RUN_STATUSES = {"completed", "archived"}
 ALLOWED_TASK_STATUSES = {"completed", "cancelled", "superseded"}
@@ -78,9 +77,15 @@ def _atomic(path: Path, content: str) -> None:
     os.replace(temporary, path)
 
 
-def _default_validators(root: Path, runs: list[Path]) -> list[str]:
+def _default_validators(
+    root: Path, runs: list[Path], governance_root: str | Path | None, project_id: str | None,
+) -> list[str]:
     scripts = Path(__file__).resolve().parent
     commands = [[sys.executable, str(scripts / "validate_agents.py"), "--project-root", str(root)]]
+    if governance_root is not None:
+        commands[0].extend(["--governance-root", str(governance_root)])
+    if project_id is not None:
+        commands[0].extend(["--project-id", project_id])
     for run in runs:
         commands.append([sys.executable, str(scripts / "validate_run.py"), str(run), "--phase", "completion"])
         manifest = _flat(run / "manifest.yaml")
@@ -271,10 +276,13 @@ def _audit_runtime_sources(bus: Path, runs: list[Path]) -> list[Path]:
     return sorted(sources)
 
 
-def finalize_project(project_root: str | Path, run_ids: Iterable[str] | None = None, *, dry_run: bool = False,
-                     validator_runner: Callable[[Path, list[Path]], list[str]] | None = None) -> dict[str, Any]:
-    root = Path(project_root).expanduser().resolve(); bus = root / BUS
-    if not root.is_dir() or not bus.is_dir(): raise ValueError("project persistent store does not exist")
+def finalize_project(
+    project_root: str | Path, run_ids: Iterable[str] | None = None, *, dry_run: bool = False,
+    validator_runner: Callable[[Path, list[Path]], list[str]] | None = None,
+    governance_root: str | Path | None = None, project_id: str | None = None,
+) -> dict[str, Any]:
+    root = resolve_project_root(str(project_root))
+    bus = bus_root(root, governance_root=governance_root, project_id=project_id)
     with exclusive_lock(bus / ".project-finalization.lock"):
         outputs = [bus / name for name in FINAL_FILES]
         existing = [path.exists() for path in outputs]
@@ -320,7 +328,11 @@ def finalize_project(project_root: str | Path, run_ids: Iterable[str] | None = N
         runs = _select_runs(bus, run_ids)
         data = _gate_and_collect(bus, runs)
         _require_persistent_closure(bus, runs)
-        errors = (validator_runner or _default_validators)(root, runs)
+        errors = (
+            validator_runner(root, runs)
+            if validator_runner is not None
+            else _default_validators(root, runs, governance_root, project_id)
+        )
         if errors: raise ValueError("persistent validator gate failed: " + "; ".join(errors))
         runtime_sources = _audit_runtime_sources(bus, runs)
         finalized_at = _now()
@@ -352,10 +364,10 @@ def finalize_project(project_root: str | Path, run_ids: Iterable[str] | None = N
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__); parser.add_argument("--project-root", required=True); parser.add_argument("--run-id", action="append", default=[]); parser.add_argument("--dry-run", action="store_true")
+    parser = argparse.ArgumentParser(description=__doc__); parser.add_argument("--project-root", required=True); parser.add_argument("--governance-root"); parser.add_argument("--project-id"); parser.add_argument("--run-id", action="append", default=[]); parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     try:
-        print(json.dumps(finalize_project(args.project_root, args.run_id, dry_run=args.dry_run), ensure_ascii=False, sort_keys=True)); return 0
+        print(json.dumps(finalize_project(args.project_root, args.run_id, dry_run=args.dry_run, governance_root=args.governance_root, project_id=args.project_id), ensure_ascii=False, sort_keys=True)); return 0
     except (ValueError, OSError, json.JSONDecodeError) as exc:
         print(f"FAIL: {exc}", file=sys.stderr); return 1
 

@@ -20,12 +20,15 @@ class RunMemoryBridgeTests(unittest.TestCase):
         self.project = Path(self.temp.name) / "project"
         self.project.mkdir()
         (self.project / "src").mkdir()
+        self.governance = Path(self.temp.name) / "governance"
+        self.bus = self.governance / "projects" / "bridge"
         self.command("init_project_agents.py", "--project-root", str(self.project),
                  "--project-id", "bridge", "--project-name", "Bridge",
                  "--agents", "A01-coordinator,A02-worker", "--governance", "light",
                  "--user-confirmed")
         initialized = self.command(
             "init_run.py", "--project-root", str(self.project), "--governance", "light",
+            "--coordination-mode", "coordinated", "--project-id", "bridge",
             "--transport", "document_bus", "--objective", "bridge lifecycle",
             "--run-id", "RUN-BRIDGE", "--versioning-mode", "not_applicable",
             "--versioning-reason", "Fixture has no versioned deliverable", "--user-confirmed",
@@ -42,7 +45,7 @@ class RunMemoryBridgeTests(unittest.TestCase):
             "--runtime-kind", "document",
         ).stdout)
         self.runtime_profile = (
-            self.project / ".multi-agent-collaboration" / "agents" / "A02-worker"
+            self.bus / "agents" / "A02-worker"
             / "runtime" / runtime["path"]
         )
         self.runtime_profile_ref = f"runtime/{runtime['path']}"
@@ -86,7 +89,13 @@ class RunMemoryBridgeTests(unittest.TestCase):
         self.assertIn("0 errors", validation.stdout)
 
     def command(self, script: str, *args: str, ok: bool = True) -> subprocess.CompletedProcess[str]:
-        result = subprocess.run(["python3", str(SCRIPTS / script), *args], capture_output=True, text=True)
+        arguments = list(args)
+        if script in {
+            "init_project_agents.py", "init_run.py", "record_agent_runtime.py",
+            "record_agent_activity.py", "rebuild_index.py", "validate_agents.py",
+        } and "--governance-root" not in arguments:
+            arguments.extend(["--governance-root", str(self.governance)])
+        result = subprocess.run(["python3", str(SCRIPTS / script), *arguments], capture_output=True, text=True)
         if ok and result.returncode:
             self.fail(result.stdout + result.stderr)
         return result
@@ -118,7 +127,7 @@ class RunMemoryBridgeTests(unittest.TestCase):
                       "reasoning_tokens": None, "total_tokens": None, "cost_minor_units": None,
                       "currency": None, "usage_source": "unavailable", "source_ref": None,
                       "source_sha256": None, "reported_at": None},
-            "source": {"source_kind": "result", "source_ref": self.result.resolve().relative_to(self.project.resolve()).as_posix(),
+            "source": {"source_kind": "result", "source_ref": self.result.resolve().relative_to(self.bus.resolve()).as_posix(),
                        "source_sha256": hashlib.sha256(self.result.read_bytes()).hexdigest(),
                        "source_event_id": None, "correlation_id": "RUN-BRIDGE:TASK-001:ATTEMPT-001",
                        "causation_id": None},
@@ -147,7 +156,7 @@ class RunMemoryBridgeTests(unittest.TestCase):
         dry = self.bridge("--dry-run")
         plan = json.loads(dry.stdout)
         self.assertTrue(plan["dry_run"])
-        self.assertFalse((self.project / ".multi-agent-collaboration" / "bridges").exists())
+        self.assertFalse((self.bus / "bridges").exists())
         self.assertEqual(before, self.run_fingerprint())
 
         completed = self.bridge()
@@ -159,7 +168,7 @@ class RunMemoryBridgeTests(unittest.TestCase):
         self.assertEqual(manifest["source_run_path"], str(self.run_dir))
         self.assertEqual(before, self.run_fingerprint())
 
-        agent = self.project / ".multi-agent-collaboration" / "agents" / "A02-worker"
+        agent = self.bus / "agents" / "A02-worker"
         task_copy = agent / "tasks" / "TASK-BRIDGE--001.md"
         handoff_copy = agent / "handoffs" / "TASK-BRIDGE--001--ATTEMPT-001.md"
         bundle = agent / "artifacts" / "RUN-BRIDGE--TASK-001--bundle.json"
@@ -176,7 +185,7 @@ class RunMemoryBridgeTests(unittest.TestCase):
         self.assertEqual(handoff_meta["runtime_profile_sha256"], profile_hash)
         self.assertEqual(
             handoff_meta["activity_record_path"],
-            self.activity.relative_to(self.project / ".multi-agent-collaboration").as_posix(),
+            self.activity.relative_to(self.bus).as_posix(),
         )
         self.assertEqual(handoff_meta["activity_record_sha256"], activity_hash)
         self.assertNotIn("record_kind", handoff_meta)
@@ -200,7 +209,7 @@ class RunMemoryBridgeTests(unittest.TestCase):
 
     def test_second_run_is_idempotent_and_archive_tampering_fails_closed(self) -> None:
         manifest = Path(self.bridge().stdout.strip())
-        agent = self.project / ".multi-agent-collaboration" / "agents" / "A02-worker"
+        agent = self.bus / "agents" / "A02-worker"
         tracked = [manifest, agent / "tasks" / "TASK-BRIDGE--001.md",
                    agent / "handoffs" / "TASK-BRIDGE--001--ATTEMPT-001.md",
                    agent / "artifacts" / "RUN-BRIDGE--TASK-001--bundle.json"]
@@ -232,14 +241,14 @@ class RunMemoryBridgeTests(unittest.TestCase):
         failed = self.bridge(ok=False)
         self.assertNotEqual(failed.returncode, 0)
         self.assertIn("activity", failed.stderr.lower())
-        self.assertFalse((self.project / ".multi-agent-collaboration" / "bridges").exists())
+        self.assertFalse((self.bus / "bridges").exists())
 
     def test_source_tampering_is_rejected_before_any_bridge_write(self) -> None:
         self.artifact.write_text("tampered source\n", encoding="utf-8")
         failed = self.bridge(ok=False)
         self.assertNotEqual(failed.returncode, 0)
         self.assertIn("validation failed", failed.stderr.lower())
-        self.assertFalse((self.project / ".multi-agent-collaboration" / "bridges").exists())
+        self.assertFalse((self.bus / "bridges").exists())
 
     @staticmethod
     def frontmatter(path: Path) -> dict:

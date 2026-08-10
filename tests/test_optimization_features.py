@@ -29,9 +29,13 @@ class OptimizationFeatureTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.project = Path(self.tmp.name) / "project"
         (self.project / "src").mkdir(parents=True)
+        self.governance = Path(self.tmp.name) / "governance"
         result = self.command(
             INIT,
             "--project-root", self.project,
+            "--coordination-mode", "coordinated",
+            "--governance-root", self.governance,
+            "--project-id", "optimization-fixture",
             "--governance", "light",
             "--transport", "document_bus",
             "--objective", "fast-lane fixture",
@@ -258,10 +262,20 @@ class OptimizationFeatureTests(unittest.TestCase):
         self.assertTrue(Path(payload["evidence_path"]).is_file())
 
     def test_candidate_index_is_read_only_and_explicitly_non_authorizing(self) -> None:
+        before = {
+            path.relative_to(self.project).as_posix(): path.read_bytes()
+            for path in self.project.rglob("*") if path.is_file()
+        }
         result = self.command(CANDIDATE, "--run-dir", self.run_dir)
         payload = json.loads(result.stdout)
         self.assertEqual(payload["release_authority"], "project_release_adapter")
         self.assertTrue(payload["dry_run"])
+        after = {
+            path.relative_to(self.project).as_posix(): path.read_bytes()
+            for path in self.project.rglob("*") if path.is_file()
+        }
+        self.assertEqual(after, before)
+        self.assertFalse(any(path.name.startswith("candidate") for path in self.project.rglob("*")))
 
 
 if __name__ == "__main__":

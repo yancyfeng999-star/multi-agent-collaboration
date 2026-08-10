@@ -13,9 +13,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable
 
-from project_memory_lib import exclusive_lock
+from project_memory_lib import bus_root, exclusive_lock, project_root as resolve_project_root
 
-BUS = ".multi-agent-collaboration"
 PCP_RE = re.compile(r"PCP-(\d{4})\.md$")
 
 
@@ -230,8 +229,7 @@ def _git(root: Path) -> dict[str, Any]:
     return {"branch": run("branch", "--show-current") or "DETACHED", "head": run("rev-parse", "HEAD"), "status": run("status", "--porcelain=v1")}
 
 
-def _collect(root: Path, run_ids: Iterable[str] | None) -> tuple[Path, dict[str, Any], list[Path], list[dict[str, Any]]]:
-    bus = root / BUS
+def _collect(root: Path, bus: Path, run_ids: Iterable[str] | None) -> tuple[Path, dict[str, Any], list[Path], list[dict[str, Any]]]:
     team_path = bus / "TEAM.yaml"
     decisions = bus / "DECISIONS.md"
     current = bus / "CURRENT_PROJECT_CONTEXT.md"
@@ -318,11 +316,17 @@ def _render_context(project_id: str, now: str, checkpoint_ref: str, agents: list
         "## Agent 状态", "", "| Agent | 当前任务 | 状态 | 最新检查点 | 最近交接 |", "|---|---|---|---|---|", *rows, "", "## 关联 Run", "", *(run_rows or ["- none"]), "", "## 恢复入口", "", f"- `{checkpoint_ref}`", ""])
 
 
-def create_project_checkpoint(project_root: str | Path, run_ids: Iterable[str] | None = None, *, dry_run: bool = False) -> dict[str, Any]:
-    root = Path(project_root).expanduser().resolve()
-    if not root.is_dir():
-        raise ValueError(f"project root does not exist: {root}")
-    bus, team, sources, runs = _collect(root, run_ids)
+def create_project_checkpoint(
+    project_root: str | Path,
+    run_ids: Iterable[str] | None = None,
+    *,
+    dry_run: bool = False,
+    governance_root: str | Path | None = None,
+    project_id: str | None = None,
+) -> dict[str, Any]:
+    root = resolve_project_root(str(project_root))
+    governance_bus = bus_root(root, governance_root=governance_root, project_id=project_id)
+    bus, team, sources, runs = _collect(root, governance_bus, run_ids)
     selected_runs = {record["run_id"] for record in runs}
     agents = []
     runtime_snapshots: list[dict[str, Any]] = []
@@ -364,11 +368,16 @@ def create_project_checkpoint(project_root: str | Path, run_ids: Iterable[str] |
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project-root", required=True)
+    parser.add_argument("--governance-root")
+    parser.add_argument("--project-id")
     parser.add_argument("--run-id", action="append", default=[])
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     try:
-        print(json.dumps(create_project_checkpoint(args.project_root, args.run_id, dry_run=args.dry_run), ensure_ascii=False, sort_keys=True))
+        print(json.dumps(create_project_checkpoint(
+            args.project_root, args.run_id, dry_run=args.dry_run,
+            governance_root=args.governance_root, project_id=args.project_id,
+        ), ensure_ascii=False, sort_keys=True))
         return 0
     except (ValueError, OSError, subprocess.SubprocessError) as exc:
         print(f"FAIL: {exc}", file=sys.stderr)
