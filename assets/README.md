@@ -7,6 +7,7 @@
 
 | 模板 | 用途 |
 | --- | --- |
+| `project-binding.yaml.template` | 外部治理空间与目标项目的稳定绑定；不会复制到目标项目 |
 | `project.yaml.template` | 项目根、允许范围和 Coordinator 身份 |
 | `agents.yaml.template` | Run 内 Agent Registry |
 | `manifest.yaml.template` | Run 策略、治理、版本合同引用和任务索引 |

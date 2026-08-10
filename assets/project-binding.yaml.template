@@ -1,0 +1,9 @@
+{
+  "allowed_roots": ["<absolute-project-root>"],
+  "created_at": "<iso-8601-with-timezone>",
+  "project_id": "<stable-project-id>",
+  "project_key": "<normalized-project-key>",
+  "project_name": "<project-name>",
+  "project_root": "<absolute-project-root>",
+  "storage_schema": "1.0"
+}
