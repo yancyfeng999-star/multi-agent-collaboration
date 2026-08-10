@@ -101,15 +101,7 @@ def git_worktree_clean(project_root: Path) -> bool:
     )
     if result.returncode:
         return False
-    return not any(
-        line
-        for line in result.stdout.splitlines()
-        if (line[3:] if len(line) > 3 else line)
-        != ".multi-agent-collaboration"
-        and not (line[3:] if len(line) > 3 else line).startswith(
-            ".multi-agent-collaboration/"
-        )
-    )
+    return not any(result.stdout.splitlines())
 
 
 def strict_commit_error(
@@ -932,15 +924,7 @@ def main() -> int:
             )
             if git_status.returncode:
                 raise SystemExit("strict release requires an accessible Git worktree")
-            dirty = []
-            for line in git_status.stdout.splitlines():
-                changed_path = line[3:] if len(line) > 3 else line
-                if changed_path == ".multi-agent-collaboration" or changed_path.startswith(
-                    ".multi-agent-collaboration/"
-                ):
-                    continue
-                dirty.append(line)
-            if dirty:
+            if git_status.stdout.splitlines():
                 raise SystemExit("strict release requires a clean project worktree")
         try:
             prior_records = event_records(events_dir)

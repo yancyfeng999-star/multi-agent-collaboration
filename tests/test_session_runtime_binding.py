@@ -9,6 +9,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from tests.governance_test_support import governance_root
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
@@ -23,15 +25,17 @@ class SessionRuntimeBindingTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.project = Path(self.temp.name) / "project"
         self.project.mkdir()
+        self.governance = governance_root(self.temp.name)
         self.command(
             "init_project_agents.py", "--project-root", str(self.project),
             "--project-id", "fixture", "--project-name", "Fixture",
             "--agents", "A01-worker", "--user-confirmed",
+            "--governance-root", str(self.governance),
         )
 
     @property
     def agent(self) -> Path:
-        return self.project / ".multi-agent-collaboration" / "agents" / "A01-worker"
+        return self.governance / "projects" / "fixture" / "agents" / "A01-worker"
 
     @property
     def mapping_path(self) -> Path:
@@ -66,7 +70,8 @@ class SessionRuntimeBindingTests(unittest.TestCase):
         return self.command(
             "bind_session.py", "--project-root", str(self.project),
             "--agent-id", "A01-worker", "--platform", "hermes",
-            "--session-id", session_id, *extra, ok=ok, env=env,
+            "--session-id", session_id, "--governance-root", str(self.governance),
+            *extra, ok=ok, env=env,
         )
 
     def test_binding_detects_records_and_references_runtime_profile(self) -> None:
@@ -143,7 +148,7 @@ class SessionRuntimeBindingTests(unittest.TestCase):
             "bind_session.py", "--project-root", str(self.project),
             "--agent-id", "A01-worker", "--platform", "hermes",
             "--session-id", "session-transaction", "--model", "hermes-4",
-            "--provider", "nous",
+            "--provider", "nous", "--governance-root", str(self.governance),
         ]
         with mock.patch.object(sys, "argv", argv), mock.patch.object(
             bind_session, "write_json", side_effect=OSError("injected session map publish failure")

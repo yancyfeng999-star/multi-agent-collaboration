@@ -1,4 +1,4 @@
 interface:
   display_name: "多智能体协同 | Multi-Agent Collaboration"
-  short_description: "多智能体协同 1.4.1：Direct 默认零治理写入，Coordinated 按需外置治理"
+  short_description: "多智能体协同 2.0.0：Direct 默认零治理写入，Coordinated 按需外置治理"
   default_prompt: "使用 $multi-agent-collaboration 先读项目并选择路径：单 Agent 明确任务默认 Direct，不创建治理资料；只有多 Agent、受管交接、独立质量、恢复或审计才启用 Coordinated，并将资料保存在项目外 Governance Home。"

@@ -7,6 +7,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from tests.governance_test_support import governance_root
+
 
 SKILL = Path(__file__).resolve().parents[1]
 SCRIPTS = SKILL / "scripts"
@@ -18,16 +20,19 @@ class IncrementalConversationSyncTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.project = Path(self.temp.name) / "project"
         self.project.mkdir()
+        self.governance = governance_root(self.temp.name)
         self.command("init_project_agents.py", "--project-root", str(self.project), "--project-id", "fixture",
-                     "--project-name", "Fixture", "--agents", "A01-worker", "--user-confirmed")
+                     "--project-name", "Fixture", "--agents", "A01-worker", "--user-confirmed",
+                     "--governance-root", str(self.governance))
         self.command("bind_session.py", "--project-root", str(self.project), "--agent-id", "A01-worker",
                      "--platform", "hermes", "--session-id", "session-1",
-                     "--model", "fixture-model", "--provider", "fixture-provider")
+                     "--model", "fixture-model", "--provider", "fixture-provider",
+                     "--governance-root", str(self.governance))
         self.source = self.project / "conversation.json"
 
     @property
     def agent(self) -> Path:
-        return self.project / ".multi-agent-collaboration" / "agents" / "A01-worker"
+        return self.governance / "projects" / "fixture" / "agents" / "A01-worker"
 
     @property
     def mapping_path(self) -> Path:
@@ -42,7 +47,7 @@ class IncrementalConversationSyncTests(unittest.TestCase):
     def sync(self, *extra: str, ok: bool = True) -> subprocess.CompletedProcess[str]:
         return self.command("sync_conversation.py", "--project-root", str(self.project), "--agent-id", "A01-worker",
                         "--source-file", str(self.source), "--platform", "hermes", "--session-id", "session-1",
-                        *extra, ok=ok)
+                        "--governance-root", str(self.governance), *extra, ok=ok)
 
     def write_messages(self, *messages: tuple[int, str]) -> None:
         self.source.write_text(json.dumps([
@@ -116,6 +121,7 @@ class IncrementalConversationSyncTests(unittest.TestCase):
         args = module.parser().parse_args([
             "--project-root", str(self.project), "--agent-id", "A01-worker", "--source-file", str(self.source),
             "--platform", "hermes", "--session-id", "session-1",
+            "--governance-root", str(self.governance),
         ])
         with mock.patch.object(module, "atomic_write", side_effect=OSError("disk full")):
             with self.assertRaises(OSError):
@@ -138,6 +144,7 @@ class IncrementalConversationSyncTests(unittest.TestCase):
         args = module.parser().parse_args([
             "--project-root", str(self.project), "--agent-id", "A01-worker", "--source-file", str(self.source),
             "--platform", "hermes", "--session-id", "session-1",
+            "--governance-root", str(self.governance),
         ])
         real_atomic_write = module.atomic_write
 

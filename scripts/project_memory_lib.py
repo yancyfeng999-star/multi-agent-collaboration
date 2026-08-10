@@ -23,7 +23,7 @@ except ImportError:  # macOS/Linux
 from protocol_lib import ProtocolError, atomic_write, now_iso
 from governance_paths import discover_governance_project, resolve_governance_project
 
-BUS_DIR = ".multi-agent-collaboration"
+LEGACY_BUS_DIR = ".multi-agent-collaboration"
 AGENT_ID_RE = re.compile(r"^A\d{2}-[a-z0-9][a-z0-9-]*$")
 CHECKPOINT_RE = re.compile(r"^CP-(\d{4})$")
 _REDACTED = "[REDACTED]"
@@ -71,6 +71,7 @@ def bus_root(
     *,
     governance_root: str | Path | None = None,
     project_id: str | None = None,
+    allow_legacy: bool = False,
 ) -> Path:
     if project_id:
         return resolve_governance_project(
@@ -86,12 +87,13 @@ def bus_root(
         return discover_governance_project(root).project_dir
     except ProtocolError as exc:
         external_error = exc
-    # Read-only compatibility for Protocol v3 projects. New writes always use
-    # an explicit external project binding.
-    bus = root / BUS_DIR
+    if not allow_legacy:
+        raise external_error
+    # Explicit read-only compatibility for Protocol v3 project-local stores.
+    bus = root / LEGACY_BUS_DIR
     if not bus.is_dir():
         raise external_error or ProtocolError("external governance binding was not found")
-    return bus
+    return bus.resolve()
 
 
 def agent_root(

@@ -674,6 +674,7 @@ def main() -> int:
             root,
             governance_root=args.governance_root,
             project_id=args.project_id,
+            allow_legacy=args.governance_root is None and args.project_id is None,
         )
         for relative in REQUIRED_PROJECT_FILES:
             if not (bus / relative).is_file(): errors.append(f"missing project file: {relative}")

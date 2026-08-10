@@ -308,11 +308,11 @@ def record_source_activity(
         return
     if not all(supplied):
         raise SystemExit("activity bridge requires project root, session id, and runtime profile ref")
-    profile = (
-        Path(args.activity_project_root).expanduser().resolve()
-        / ".multi-agent-collaboration" / "agents" / args.agent_id
-        / args.activity_runtime_profile_ref
-    )
+    governance_project = Path(args.run_dir).expanduser().resolve().parent.parent
+    activity_agent = (governance_project / "agents" / args.agent_id).resolve()
+    profile = (activity_agent / args.activity_runtime_profile_ref).resolve()
+    if not profile.is_relative_to(activity_agent):
+        raise SystemExit("activity runtime profile must stay inside the governance Agent store")
     if not profile.is_file():
         raise SystemExit("activity runtime profile does not exist")
     try:
@@ -378,6 +378,7 @@ def record_source_activity(
             project_root=args.activity_project_root,
             agent_id=args.agent_id,
             payload=payload,
+            governance_root=governance_project.parent.parent,
         )
     except Exception as exc:
         code = exc.args[0] if getattr(exc, "args", None) else type(exc).__name__

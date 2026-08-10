@@ -532,7 +532,7 @@ updated_at: "{now}"
 
 ## 核心原则
 
-1. **项目目录是长期真源** - 平台会话是运行时，项目文件是可移植记忆
+1. **治理主页是协作资料真源** - 目标项目保持业务真源，会话、Agent、Run 与交接只写项目外 Governance Home
 2. **完整可追溯** - 每个结论都能追溯到任务、对话、文件或测试
 3. **可压缩但不丢失** - 压缩不能覆盖或删除原文
 4. **真实完成导向** - Agent 自报完成不能作为项目完成依据
@@ -605,8 +605,8 @@ updated_at: "{now}"
 **影响范围**: 全局
 **状态**: 已确认
 **相关文件**:
-- .multi-agent-collaboration/project.yaml
-- .multi-agent-collaboration/TEAM.yaml
+- governance://project.yaml
+- governance://TEAM.yaml
 """
     write_text(base_dir / "DECISIONS.md", content)
 

@@ -13,7 +13,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from project_memory_lib import exclusive_lock
+from project_memory_lib import bus_root, exclusive_lock
+from protocol_lib import ProtocolError
 
 FIELDS = ("model", "provider", "platform", "session", "profile", "workspace", "runtime_kind")
 PROTECTED_PARTS = {"archive", "checkpoints", "checkpoint", "events", "evidence", "bridge"}
@@ -124,9 +125,17 @@ def _target_state(agent: Path) -> str:
     return "current"
 
 
-def make_plan(project_root: Path) -> dict[str, Any]:
+def make_plan(
+    project_root: Path,
+    *,
+    governance_root: str | Path | None = None,
+    project_id: str | None = None,
+) -> dict[str, Any]:
     root = project_root.expanduser().resolve()
-    bus = root / ".multi-agent-collaboration"
+    try:
+        bus = bus_root(root, governance_root=governance_root, project_id=project_id)
+    except ProtocolError as exc:
+        raise MigrationError("UNINITIALIZED") from exc
     if not bus.is_dir():
         raise MigrationError("UNINITIALIZED")
     agents = _agents(bus)
@@ -258,12 +267,25 @@ def _atomic_replace(destination: Path, content: bytes) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def apply_plan(root: Path, supplied_hash: str) -> dict[str, Any]:
-    bus = root / ".multi-agent-collaboration"
+def apply_plan(
+    root: Path,
+    supplied_hash: str,
+    *,
+    governance_root: str | Path | None = None,
+    project_id: str | None = None,
+) -> dict[str, Any]:
+    try:
+        bus = bus_root(root, governance_root=governance_root, project_id=project_id)
+    except ProtocolError as exc:
+        raise MigrationError("UNINITIALIZED") from exc
     lock = bus / ".runtime-migration.lock"
     try:
         with exclusive_lock(lock):
-            plan = make_plan(root)
+            plan = make_plan(
+                root,
+                governance_root=governance_root,
+                project_id=project_id,
+            )
             if supplied_hash != plan["plan_hash"]:
                 raise MigrationError("SOURCE_DRIFT", 3)
             if not plan["operations"]:
@@ -332,6 +354,8 @@ def apply_plan(root: Path, supplied_hash: str) -> dict[str, Any]:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project-root", required=True)
+    parser.add_argument("--governance-root")
+    parser.add_argument("--project-id")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--dry-run", action="store_true")
     mode.add_argument("--apply", action="store_true")
@@ -348,9 +372,18 @@ def main() -> int:
         if args.apply:
             if not args.plan_hash:
                 raise MigrationError("PLAN_HASH_REQUIRED")
-            result = apply_plan(root, args.plan_hash)
+            result = apply_plan(
+                root,
+                args.plan_hash,
+                governance_root=args.governance_root,
+                project_id=args.project_id,
+            )
         else:
-            result = make_plan(root)
+            result = make_plan(
+                root,
+                governance_root=args.governance_root,
+                project_id=args.project_id,
+            )
         print(json.dumps(result, ensure_ascii=False, sort_keys=True))
         return 0
     except MigrationError as exc:

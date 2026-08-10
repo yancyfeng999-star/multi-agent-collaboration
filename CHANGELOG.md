@@ -3,6 +3,28 @@
 本文件记录 Skill 协议和用户可见行为变化。项目业务版本由各 Run 的版本合同治理，不在
 这里记录。
 
+## Skill 2.0.0 — 2026-08-10
+
+### 开发治理侧车
+
+- 新增 `Direct` / `Coordinated` 双模式：Direct 为默认且不创建 Run、Agent、handoff、
+  candidate index 或任何治理文件；只在用户明确要求多 Agent 协作时进入 Coordinated。
+- Coordinated 的默认真源改为项目外 `~/.codex/governance/multi-agent-collaboration/`，
+  通过 Storage Schema `1.0` 的项目绑定关联真实项目根目录。
+- Agent 角色、Run、session/runtime、archive、checkpoint、handoff、bridge、PCP、
+  finalization 和 candidate index 全部外置；不再自动创建或修改目标项目 `AGENTS.md`。
+- 网站和应用的构建、启动、测试、部署与线上运行对治理资料零依赖；
+  项目内旧治理目录不再被 Git 门禁忽略。
+
+### 迁移与兼容
+
+- 新增 `migrate_governance_storage.py` 的 dry-run/apply 事务迁移：复制前生成清单与
+  SHA-256，staging 中逐文件校验后原子发布，源目录不删除、不改写。
+- 保留 Protocol v3 与旧项目内资料的只读兼容；Skill 大版本升级不改项目业务
+  版本，也不授予发布权限。
+- 用户入口 `agents.html` 仍只是静态角色目录与手动启动器，不读 Run、不显示
+  运行状态、不自动编排。
+
 ## Skill 1.4.1 — 2026-08-10
 
 ### 发布一致性补丁

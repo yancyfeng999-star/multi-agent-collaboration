@@ -24,5 +24,5 @@ updated_at: "{updated_at}"
 **影响范围**: 全局
 **状态**: 已确认
 **相关文件**:
-- .multi-agent-collaboration/project.yaml
-- .multi-agent-collaboration/TEAM.yaml
+- governance://project.yaml
+- governance://TEAM.yaml

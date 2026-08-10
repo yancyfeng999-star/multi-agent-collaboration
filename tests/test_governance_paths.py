@@ -83,6 +83,20 @@ class GovernancePathsTests(unittest.TestCase):
         parsed = json.loads(schema.read_text(encoding="utf-8"))
         self.assertEqual(parsed["properties"]["storage_schema"]["const"], "1.0")
 
+    def test_legacy_project_store_requires_explicit_read_only_opt_in(self) -> None:
+        import sys
+
+        scripts = Path(__file__).parents[1] / "scripts"
+        sys.path.insert(0, str(scripts))
+        self.addCleanup(lambda: sys.path.remove(str(scripts)))
+        from project_memory_lib import bus_root
+
+        legacy = self.project / ".multi-agent-collaboration"
+        legacy.mkdir()
+        with self.assertRaisesRegex(Exception, "external governance binding"):
+            bus_root(self.project)
+        self.assertEqual(bus_root(self.project, allow_legacy=True), legacy.resolve())
+
 
 if __name__ == "__main__":
     unittest.main()

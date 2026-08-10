@@ -484,13 +484,7 @@ def git_worktree_clean(project_root: Path) -> bool:
     )
     if result.returncode:
         return False
-    remaining = []
-    for line in result.stdout.splitlines():
-        path = line[3:] if len(line) > 3 else line
-        if path == ".multi-agent-collaboration" or path.startswith(".multi-agent-collaboration/"):
-            continue
-        remaining.append(line)
-    return not remaining
+    return not result.stdout.splitlines()
 
 
 def git_current_branch(project_root: Path) -> str | None:

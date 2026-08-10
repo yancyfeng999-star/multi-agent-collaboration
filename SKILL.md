@@ -8,7 +8,7 @@ description: Use when a user wants to understand or manually start an Agent role
 - 中文名称：多智能体协同
 - 英文名称：Multi-Agent Collaboration
 - Skill ID：`multi-agent-collaboration`
-- Skill 版本：`1.4.1`（唯一版本权威源：`VERSION`）
+- Skill 版本：`2.0.0`（唯一版本权威源：`VERSION`）
 - Protocol 版本：`3`
 - Governance Storage Schema：`1.0`
 - 调用：`$multi-agent-collaboration`

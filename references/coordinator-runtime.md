@@ -9,8 +9,8 @@ additional paths or release authority.
 ## One tick
 
 ```bash
-python3 scripts/coordinator.py --run-dir /absolute/path/to/.multi-agent-collaboration/runs/RUN-ID --once
-python3 scripts/coordinator.py --run-dir /absolute/path/to/.multi-agent-collaboration/runs/RUN-ID --dry-run
+python3 scripts/coordinator.py --run-dir '<governance-root>/projects/<project-key>/runs/RUN-ID' --once
+python3 scripts/coordinator.py --run-dir '<governance-root>/projects/<project-key>/runs/RUN-ID' --dry-run
 ```
 
 The tick reads the run-local manifest, registry, frozen tasks, immutable events, and active locks. It replays task state, selects only tasks whose dependencies are completed, subtracts active tasks from `max_parallel`, and rejects overlapping `owned_paths` or active path locks. Selection is deterministic by manifest task order.

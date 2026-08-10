@@ -8,6 +8,8 @@ from unittest.mock import patch
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from tests.governance_test_support import governance_project
+
 SKILL = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SKILL / "scripts"))
 
@@ -21,7 +23,7 @@ class CoordinatorRuntimeTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name) / "project"
         self.root.mkdir()
-        self.bus = self.root / ".multi-agent-collaboration"
+        self.bus = governance_project(self.temp.name, self.root)
         self.run_dir = self.bus / "runs" / "RUN-1"
         for name in ("tasks", "events", "locks", "operations", "inbox/a", "inbox/b", "outbox/a", "outbox/b"):
             (self.run_dir / name).mkdir(parents=True, exist_ok=True)

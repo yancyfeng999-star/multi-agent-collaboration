@@ -8,6 +8,8 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from tests.governance_test_support import governance_project, governance_root
+
 
 SKILL = Path(__file__).resolve().parents[1]
 SCRIPT = SKILL / "scripts" / "create_checkpoint.py"
@@ -33,7 +35,10 @@ class CheckpointIntegrityTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.project = Path(self.temp.name) / "project"
-        self.agent = self.project / ".multi-agent-collaboration" / "agents" / "A01-test"
+        self.project.mkdir()
+        self.governance = governance_root(self.temp.name)
+        self.bus = governance_project(self.temp.name, self.project)
+        self.agent = self.bus / "agents" / "A01-test"
         (self.agent / "conversations" / "archive" / "2026-08").mkdir(parents=True)
         (self.agent / "conversations" / "checkpoints").mkdir(parents=True)
         (self.agent / "runtime" / "profiles").mkdir(parents=True)
@@ -83,6 +88,7 @@ class CheckpointIntegrityTests(unittest.TestCase):
     def run_checkpoint(self, archive: Path | None = None) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             ["python3", str(SCRIPT), "--project-root", str(self.project), "--agent-id", "A01-test",
+             "--governance-root", str(self.governance),
              "--summary-file", str(self.summary), "--source-archive", str(archive or self.archive),
              "--task-id", "TASK-1"],
             capture_output=True, text=True,
@@ -103,7 +109,7 @@ class CheckpointIntegrityTests(unittest.TestCase):
         first = self.run_checkpoint()
         self.assertEqual(first.returncode, 0, first.stderr)
         meta = frontmatter(Path(first.stdout.strip()))
-        relative = self.archive.relative_to(self.project / ".multi-agent-collaboration").as_posix()
+        relative = self.archive.relative_to(self.bus).as_posix()
         self.assertEqual(meta["source_archive_hashes"], {relative: hashlib.sha256(b"conversation body").hexdigest()})
 
         self.archive.write_text(self.archive.read_text(encoding="utf-8") + "tampered", encoding="utf-8")
@@ -146,7 +152,7 @@ class CheckpointIntegrityTests(unittest.TestCase):
         self.assertEqual(prop["additionalProperties"]["pattern"], "^[a-f0-9]{64}$")
 
     def test_rejects_archive_from_another_agent(self) -> None:
-        other = self.project / ".multi-agent-collaboration/agents/A02-other/conversations/archive/2026-08"
+        other = self.bus / "agents/A02-other/conversations/archive/2026-08"
         other.mkdir(parents=True)
         body = "other agent conversation"
         archive = other / "other.md"

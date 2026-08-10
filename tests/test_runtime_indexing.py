@@ -7,6 +7,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.governance_test_support import governance_project, governance_root
+
 
 ROOT = Path(__file__).resolve().parents[1]
 REBUILD = ROOT / "scripts" / "rebuild_index.py"
@@ -21,8 +23,9 @@ class RuntimeIndexingTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.project = Path(self.temporary.name) / "project"
-        self.bus = self.project / ".multi-agent-collaboration"
-        self.bus.mkdir(parents=True)
+        self.project.mkdir()
+        self.governance = governance_root(self.temporary.name)
+        self.bus = governance_project(self.temporary.name, self.project)
 
     def write_json(self, relative: str, value: dict) -> Path:
         path = self.bus / relative
@@ -39,7 +42,8 @@ class RuntimeIndexingTests(unittest.TestCase):
 
     def run_rebuild(self) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
-            ["python3", str(REBUILD), "--project-root", str(self.project)],
+            ["python3", str(REBUILD), "--project-root", str(self.project),
+             "--governance-root", str(self.governance)],
             text=True,
             capture_output=True,
         )

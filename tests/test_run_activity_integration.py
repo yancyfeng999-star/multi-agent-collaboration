@@ -8,6 +8,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.governance_test_support import governance_root
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 INIT = SCRIPTS / "init_run.py"
@@ -21,8 +23,11 @@ class RunActivityIntegrationTests(unittest.TestCase):
         self.project = Path(self.temp.name) / "project"
         self.project.mkdir()
         (self.project / "src").mkdir()
+        self.governance = governance_root(self.temp.name)
         self.run_dir = Path(self.command(
             INIT, "--project-root", self.project, "--governance", "light",
+            "--coordination-mode", "coordinated", "--governance-root", self.governance,
+            "--project-id", "fixture",
             "--transport", "document_bus", "--objective", "activity integration",
             "--run-id", "RUN-ACTIVITY", "--versioning-mode", "not_applicable",
             "--versioning-reason", "test fixture", "--user-confirmed",
@@ -37,7 +42,8 @@ class RunActivityIntegrationTests(unittest.TestCase):
             "--title", "task", "--objective", "work", "--owner-agent", "A02-owner",
             "--owned-path", self.project / "src",
         )
-        self.agent = self.project / ".multi-agent-collaboration" / "agents" / "A02-owner"
+        self.bus = self.run_dir.parent.parent
+        self.agent = self.bus / "agents" / "A02-owner"
         (self.agent / "runtime" / "profiles").mkdir(parents=True)
         self.profile = self.agent / "runtime" / "profiles" / "RP-000001.json"
         self.profile.write_text(json.dumps({
@@ -99,7 +105,7 @@ class RunActivityIntegrationTests(unittest.TestCase):
             "attempt_started", "status_transition", "attempt_finished", "artifact_evidence",
         ])
         expected_hash = hashlib.sha256(self.profile.read_bytes()).hexdigest()
-        for record, source in zip(records, (ack, lease, result, evidence), strict=True):
+        for record, source in zip(records, (ack, lease, result, evidence)):
             self.assertEqual(record["attempt_id"], "ATTEMPT-002")
             self.assertEqual(record["runtime_profile"]["native_binding_sha256"], expected_hash)
             self.assertEqual(record["source"]["source_sha256"], hashlib.sha256(source.read_bytes()).hexdigest())

@@ -8,6 +8,13 @@
 
 **Tech Stack:** Python 3 标准库、受限 YAML/JSON、SHA-256、原子文件写入、`unittest`/`pytest`、Markdown。
 
+## 执行记录（2026-08-10）
+
+- Task 1–7 已完成残留清理、版本更新、发布门禁与 2.0.0 本地收尾提交。
+- TDD 已覆盖外置 binding、Direct 零写入、外置 Run/Agent、Bridge/收口、事务迁移、文档契约、旧项目内目录 Git 门禁与只读兼容。
+- 最终权威测试命令为 `unittest discover`，226 项通过；两个现有 Python 运行时均未安装 pytest，因项目不声明该依赖且本次不允许向项目外安装，未临时下载，未将 `unittest` 结果冒充为 pytest。
+- 81 个 Python 源文件编译、11 个 JSON Schema、37 个顶层 CLI `--help`、Markdown 本地链接、Skill 快速校验和 `git diff --check` 通过。
+
 ## Global Constraints
 
 - 只修改 `multi-agent-collaboration` Skill 项目，不访问或修改目标网站项目。
@@ -335,11 +342,11 @@
 
   Run: `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -p 'test_*.py' -q`
 
-  Run: `PYTHONDONTWRITEBYTECODE=1 python -m pytest -q`
+  Optional: 已安装 pytest 时再用 `PYTHONDONTWRITEBYTECODE=1 python -m pytest -q` 复跑；未安装时记录环境缺口，不临时下载。
 
 - [ ] **Step 4: 运行发布门禁**
 
-  Run: `PYTHONDONTWRITEBYTECODE=1 python -m py_compile scripts/*.py scripts/adapters/*.py`
+  Run: 对 `scripts/*.py`、`scripts/adapters/*.py` 和 `tests/*.py` 执行无 `.pyc` 副作用的逐文件 `compile(...)`。
 
   Run: `python /Users/yancyfeng/.codex/skills/.system/skill-creator/scripts/quick_validate.py .`
 

@@ -50,7 +50,7 @@ class AgentCatalogTests(unittest.TestCase):
             self.assertIn("Protocol 版本", text)
             self.assertIn("项目业务版本", text)
         self.assertIn("唯一版本权威源", self.skill)
-        self.assertIn("1.4.1", self.readme)
+        self.assertIn("2.0.0", self.readme)
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@
 | 中文名称 | 多智能体协同 |
 | English Name | Multi-Agent Collaboration |
 | Skill ID | `multi-agent-collaboration` |
-| Skill Version | `1.4.1` |
+| Skill Version | `2.0.0` |
 | Protocol Version | `3` |
 | Governance Storage Schema | `1.0` |
 | GitHub | [yancyfeng999-star/multi-agent-collaboration](https://github.com/yancyfeng999-star/multi-agent-collaboration) |
@@ -103,7 +103,7 @@ Light/Standard 可使用 `execution_profile=fast`，把重复门禁汇总为一�
 
 | 对象 | 当前值/权威源 | 变化条件 |
 | --- | --- | --- |
-| Skill 版本 | `1.4.1` / [VERSION](VERSION) | Skill 用户可见行为、文档、脚本、Schema 或默认值变化 |
+| Skill 版本 | `2.0.0` / [VERSION](VERSION) | Skill 用户可见行为、文档、脚本、Schema 或默认值变化 |
 | Protocol 版本 | `3` / `scripts/protocol_lib.py` | 任务、事件、状态机、证据或恢复语义不兼容变化 |
 | Storage Schema | `1.0` / binding schema | Governance Home 布局与绑定契约变化 |
 | 项目业务版本 | 目标项目唯一版本权威源 | 项目交付范围、兼容性或发布内容变化 |

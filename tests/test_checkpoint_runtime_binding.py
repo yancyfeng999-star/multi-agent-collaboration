@@ -7,6 +7,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.governance_test_support import governance_project, governance_root
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "create_checkpoint.py"
@@ -40,7 +42,10 @@ class CheckpointRuntimeBindingTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.project = Path(self.temp.name) / "project"
-        self.agent = self.project / ".multi-agent-collaboration" / "agents" / "A01-worker"
+        self.project.mkdir()
+        self.governance = governance_root(self.temp.name)
+        self.bus = governance_project(self.temp.name, self.project)
+        self.agent = self.bus / "agents" / "A01-worker"
         (self.agent / "conversations/archive/2026-08").mkdir(parents=True)
         (self.agent / "conversations/checkpoints").mkdir(parents=True)
         (self.agent / "runtime/profiles").mkdir(parents=True)
@@ -85,7 +90,7 @@ class CheckpointRuntimeBindingTests(unittest.TestCase):
 
     def run_checkpoint(self, *archives: Path) -> subprocess.CompletedProcess[str]:
         command = ["python3", str(SCRIPT), "--project-root", str(self.project), "--agent-id", "A01-worker",
-                   "--summary-file", str(self.summary)]
+                   "--governance-root", str(self.governance), "--summary-file", str(self.summary)]
         for archive in archives:
             command += ["--source-archive", str(archive)]
         return subprocess.run(command, capture_output=True, text=True)

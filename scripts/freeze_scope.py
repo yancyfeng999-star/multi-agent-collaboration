@@ -33,13 +33,7 @@ def _dirty(root: Path) -> list[str]:
     result = subprocess.run(["git", "-C", str(root), "status", "--porcelain"], capture_output=True, text=True)
     if result.returncode:
         return []
-    paths: list[str] = []
-    for line in result.stdout.splitlines():
-        path = line[3:] if len(line) > 3 else line
-        if path == ".multi-agent-collaboration" or path.startswith(".multi-agent-collaboration/"):
-            continue
-        paths.append(path)
-    return sorted(paths)
+    return sorted(line[3:] if len(line) > 3 else line for line in result.stdout.splitlines())
 
 
 def freeze_scope(
