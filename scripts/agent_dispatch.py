@@ -13,6 +13,8 @@ from typing import Any
 
 from project_memory_lib import exclusive_lock
 from claim_lib import effective_owner
+from conflict_model import find_conflict
+from executor_pool import allocate_executor, release_executor
 from preflight_lib import _load_context
 from protocol_lib import atomic_write, frontmatter, json_string_list, path_within, paths_overlap, scalar_map, sha256, valid_iso8601
 from wake_agent import wake_agent
@@ -30,6 +32,11 @@ def _validate_publication(
     owner: str,
     child_owned: list[str],
     assignment_mode: str,
+    logical_resources: list[str],
+    environment_resources: list[str],
+    workspace: str | None,
+    workspace_policy: str,
+    release_lane: str,
 ) -> dict[str, Any]:
     context = _load_context(run_dir)
     manifest = context["manifest"]
@@ -77,8 +84,13 @@ def _validate_publication(
         scope_values = scalar_map(scope_path.read_text(encoding="utf-8"), source=str(scope_path))
         scope_paths = json_string_list(scope_values.get("requested_paths", "[]"), field="requested_paths", source=str(scope_path))
         scope_forbidden = json_string_list(scope_values.get("forbidden_paths", "[]"), field="forbidden_paths", source=str(scope_path))
-    elif manifest.get("preflight_required", "false") == "true":
-        raise ValueError("self-service publication requires a frozen scope")
+    else:
+        scope_required = (
+            manifest.get("execution_profile", "normal") != "emergency"
+            or manifest.get("governance") == "strict"
+        )
+        if manifest.get("preflight_required", "false") == "true" and scope_required:
+            raise ValueError("self-service publication requires a frozen scope")
     for path in child_owned:
         if any(path_within(path, [forbidden], context["project_root"]) for forbidden in [*parent_forbidden, *scope_forbidden]):
             raise ValueError(f"child owned path is forbidden by parent or scope: {path}")
@@ -86,12 +98,29 @@ def _validate_publication(
             path_within(path, [scope], context["project_root"]) for scope in scope_paths
         ):
             raise ValueError(f"child owned path exceeds parent or frozen scope: {path}")
+    active_tasks: list[dict[str, str]] = []
     for task_id, (_, task) in context["tasks"].items():
         if context["states"].get(task_id) not in {"dispatched", "acknowledged", "running", "handoff_ready", "reviewing", "qa_running", "release_ready"}:
             continue
+        active_tasks.append(task)
         existing_owned = json_string_list(task.get("owned_paths", "[]"), field="owned_paths", source=task_id)
         if any(paths_overlap(left, right, context["project_root"]) for left in child_owned for right in existing_owned):
             raise ValueError(f"child owned path conflicts with active task: {task_id}")
+    conflict = find_conflict(
+        {
+            "task_id": "child-publication",
+            "owned_paths": json.dumps(child_owned, ensure_ascii=False),
+            "logical_resources": json.dumps(logical_resources, ensure_ascii=False),
+            "environment_resources": json.dumps(environment_resources, ensure_ascii=False),
+            "workspace": workspace or "",
+            "workspace_policy": workspace_policy,
+            "release_lane": release_lane,
+        },
+        active_tasks,
+        context["project_root"],
+    )
+    if conflict:
+        raise ValueError(f"child task conflicts with active task: {conflict}")
     now = datetime.now().astimezone()
     for lock_path in sorted((run_dir / "locks").glob("*.yaml")):
         values = scalar_map(lock_path.read_text(encoding="utf-8"), source=str(lock_path))
@@ -157,6 +186,21 @@ def _create_task_command(args: argparse.Namespace, run_dir: Path) -> list[str]:
     ):
         for value in values:
             command.extend((option, value))
+    for option, values in (
+        ("--required-capability", args.required_capability),
+        ("--logical-resource", args.logical_resource),
+        ("--environment-resource", args.environment_resource),
+    ):
+        for value in values:
+            command.extend((option, value))
+    for option, value in (
+        ("--role-ref", args.role_ref),
+        ("--workspace", args.workspace),
+        ("--workspace-policy", args.workspace_policy),
+        ("--release-lane", args.release_lane),
+    ):
+        if value:
+            command.extend((option, value))
     return command
 
 
@@ -165,6 +209,7 @@ def publish(args: argparse.Namespace) -> dict[str, Any]:
     for field in ("reviewer_agent", "qa_agent", "release_agent"):
         if len(getattr(args, field)) > 1:
             raise ValueError(f"{field} accepts at most one Agent")
+    context = _load_context(run_dir)
     decision = _validate_publication(
         run_dir,
         args.publisher_agent,
@@ -172,8 +217,12 @@ def publish(args: argparse.Namespace) -> dict[str, Any]:
         args.owner_agent,
         args.owned_path,
         args.assignment_mode,
+        args.logical_resource,
+        args.environment_resource,
+        args.workspace,
+        args.workspace_policy,
+        args.release_lane,
     )
-    context = _load_context(run_dir)
     for dependency in args.dependency:
         if context["states"].get(dependency) != "completed":
             raise ValueError(f"dependency is not completed: {dependency}")
@@ -188,7 +237,28 @@ def publish(args: argparse.Namespace) -> dict[str, Any]:
         owner_for_quality = args.owner_agent if args.assignment_mode == "fixed" else "pool"
         if owner_for_quality in quality_agents:
             raise ValueError("publisher child Owner cannot self-review or self-QA")
+    executor_binding: dict[str, Any] | None = None
+    if (
+        args.assignment_mode == "fixed"
+        and context["manifest"].get("executor_policy", "fixed") == "capability_pool"
+    ):
+        owner_profile = context["agents"].get(args.owner_agent)
+        if owner_profile is None:
+            raise ValueError(f"child owner is not registered: {args.owner_agent}")
+        executor_binding = allocate_executor(
+            run_dir,
+            task_id=args.task_id,
+            principal_agent_id=args.owner_agent,
+            role_ref=args.role_ref or args.owner_agent,
+            required_capabilities=args.required_capability,
+            runtime=str(owner_profile.get("runtime", "document")),
+            workspace=args.workspace or context["project_root"],
+            worktree_policy=args.workspace_policy,
+            dry_run=args.dry_run,
+        )
     result: dict[str, Any] = {"ready": True, **decision, "task_id": args.task_id, "dry_run": args.dry_run}
+    if executor_binding:
+        result["executor_id"] = executor_binding["executor_id"]
     if args.dry_run:
         return result
     manifest_path = run_dir / "manifest.yaml"
@@ -220,11 +290,16 @@ def publish(args: argparse.Namespace) -> dict[str, Any]:
                     f"self-service {event.lower()}",
                     "--payload-file",
                     str(task_path),
-                    "--causation-id",
-                    args.parent_task,
                     "--idempotency-key",
                     f"{decision['run_id']}:{args.task_id}:{event}:self-service:v1",
                 ]
+                parent_events = [
+                    values.get("event_id")
+                    for _, values in context["records"]
+                    if values.get("task_id") == args.parent_task and values.get("event_id")
+                ]
+                if parent_events:
+                    event_command.extend(("--causation-id", parent_events[-1]))
                 emitted = subprocess.run(event_command, capture_output=True, text=True)
                 if emitted.returncode:
                     raise RuntimeError(emitted.stderr.strip() or emitted.stdout.strip())
@@ -232,6 +307,13 @@ def publish(args: argparse.Namespace) -> dict[str, Any]:
             if task_path.exists():
                 task_path.unlink()
             atomic_write(manifest_path, manifest_before)
+            if executor_binding and not executor_binding.get("dry_run") and not executor_binding.get("reused"):
+                release_executor(
+                    run_dir,
+                    str(executor_binding["executor_id"]),
+                    str(executor_binding["principal_agent_id"]),
+                    "child publication rolled back",
+                )
             raise
     result["task_path"] = str(task_path)
     result["task_sha256"] = sha256(task_path)
@@ -242,7 +324,13 @@ def publish(args: argparse.Namespace) -> dict[str, Any]:
             "next_action": "eligible_agent_claim_task",
         }
     else:
-        result["dispatch"] = wake_agent(run_dir, args.task_id, args.owner_agent, dry_run=False)
+        result["dispatch"] = wake_agent(
+            run_dir,
+            args.task_id,
+            args.owner_agent,
+            executor_id=str(executor_binding["executor_id"]) if executor_binding else None,
+            dry_run=False,
+        )
     return result
 
 
@@ -268,6 +356,17 @@ def main() -> int:
     parser.add_argument("--human-gate", action="append", default=[])
     parser.add_argument("--acceptance", action="append", default=[])
     parser.add_argument("--verification", action="append", default=[])
+    parser.add_argument("--role-ref")
+    parser.add_argument("--required-capability", action="append", default=[])
+    parser.add_argument("--logical-resource", action="append", default=[])
+    parser.add_argument("--environment-resource", action="append", default=[])
+    parser.add_argument("--workspace")
+    parser.add_argument(
+        "--workspace-policy",
+        choices=("isolated_writer", "shared_read_only", "shared_no_git_mutation"),
+        default="isolated_writer",
+    )
+    parser.add_argument("--release-lane", default="none")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     print(json.dumps(publish(args), ensure_ascii=False, indent=2, sort_keys=True))

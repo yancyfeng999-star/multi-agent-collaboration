@@ -30,6 +30,7 @@
 | `migrate_project_agents.py` | 以备份、校验和回滚迁移长期存储版本 |
 | `migrate_governance_storage.py` | 将旧的项目内治理目录逐文件校验并复制到外部 Governance Home，不删除源目录 |
 | `coordinator.py` | 执行有界单 tick 的 ready-wave、超时与投递协调 |
+| `executor_pool.py` | 按 role/capability/worktree/容量分配 Run 内短期 executor，并追加 release 记录 |
 | `preflight_run.py` | 一次性只读检查任务图、范围、锁、治理和派发准备度 |
 | `completion_preflight.py` | 一次性只读检查 Owner 结果、验证、Review/QA、commit 和收口缺口 |
 | `freeze_scope.py` | 冻结请求路径、禁止路径和目标环境，生成不可变 scope hash |
@@ -38,7 +39,7 @@
 | `recover_timeout.py` | 记录 ACK/lease 超时恢复决策，避免无证据自动重投 |
 | `resource_queue.py` | 为共享资源写 FIFO 请求，避免多个 Agent 同时争用高冲突资源 |
 | `build_candidate_index.py` | 只读汇总完成/发布整备候选的版本、commit 和证据事实 |
-| `migrate_run_optimization.py` | 为旧 Run 增补 1.4.0 可选字段和 retry policy，支持 dry-run/apply |
+| `migrate_run_optimization.py` | 为旧 Run 增补执行 profile、任务级 Preflight、executor policy 和 retry policy，支持 dry-run/apply/rollback |
 | `wake_agent.py` | 验证身份/会话后调用适配器，失败时安全回退 document bus |
 | `runtime_metadata.py` | 按安全来源优先级探测 actual runtime metadata，并处理未知与冲突 |
 | `record_agent_runtime.py` | 原子发布不可变 Runtime Profile、哈希链、索引和当前指针 |
@@ -73,15 +74,19 @@ init_run.py
 → manage_run.py archive-run
 ```
 
-### 快车道与自助派发
+### Emergency、快车道与自助派发
 
-初始化时显式选择执行配置；`fast` 可用于 Light/Standard，`strict` 必须使用 `normal`：
+初始化时显式选择执行配置；`emergency` 可用于 Light/Standard/Strict，`fast` 可用于 Light/Standard，`strict` 必须使用 `normal` 或 `emergency`。Emergency 默认使用任务级 Preflight 和 capability pool：
+
+Light/Standard 的低风险、本地可逆 Emergency 可以先依赖父任务 owned scope，不必先建立完整
+Run scope freeze；Strict Emergency 和高风险动作仍必须先冻结 scope 并补齐对应门禁。
 
 ```bash
 python3 scripts/init_run.py --project-root "<project-root>" \
   --coordination-mode coordinated --governance-root "<governance-home>" \
   --project-id "<project-id>" \
-  --governance light --execution-profile fast --dispatch-policy hybrid \
+  --governance standard --execution-profile emergency --dispatch-policy self_service \
+  --executor-policy capability_pool --executor-scale-authorized \
   --transport document_bus --objective "<objective>" \
   --versioning-mode not_applicable --versioning-reason "<reason>" --user-confirmed
 python3 scripts/freeze_scope.py --run-dir "<run-dir>" \
@@ -94,7 +99,10 @@ python3 scripts/preflight_run.py --run-dir "<run-dir>"
 ```bash
 python3 scripts/agent_dispatch.py publish --run-dir "<run-dir>" \
   --publisher-agent worker --parent-task TASK-PARENT --task-id TASK-CHILD \
-  --title "Child" --objective "..." --owner-agent worker --owned-path src/child
+  --title "Child" --objective "..." --owner-agent worker --owned-path src/child \
+  --role-ref frontend --required-capability frontend \
+  --workspace "<project-root>/worktrees/TASK-CHILD" \
+  --workspace-policy isolated_writer --release-lane none
 ```
 
 任务池必须声明 `--owner-agent pool --assignment-mode claimable --eligible-agent <agent>`。
@@ -106,7 +114,8 @@ python3 scripts/agent_claim.py claim-task --run-dir "<run-dir>" \
   --task-id TASK-POOL --agent-id worker
 python3 scripts/agent_claim.py claim-thread --run-dir "<run-dir>" \
   --task-id TASK-POOL --agent-id worker --thread-id THREAD-1 \
-  --platform codex --session-id "<active-session>" --workspace "<project-root>"
+  --platform codex --session-id "<active-session>" --workspace "<executor-workspace>" \
+  --executor-id "<executor-id>"
 # 主动让出时追加不可变 release 记录（不会伪造完成或自动重置任务）
 python3 scripts/agent_claim.py release-task --run-dir "<run-dir>" \
   --claim-ref "<claim-path>" --agent-id worker --reason "handoff complete"
@@ -117,6 +126,10 @@ python3 scripts/agent_claim.py release-thread --run-dir "<run-dir>" \
 第二个抢占者不会覆盖第一个 claim，而是返回持有者、lease 到期时间、`blocked_by` 和下一
 动作。任务 claim 解析为后续 ACK/lease/result 的有效 Owner；线程 claim 只绑定 thread、
 platform 和精确 workspace。
+
+若任务使用 capability pool，`write-ack`、`write-lease` 和 `write-result` 应传同一个
+`--executor-id`；脚本与验证器会检查 task、principal、attempt 和 binding 一致。结果完成后
+自动追加 executor release；lease 到期由下一次调度或分配 tick 追加不可变 expiry 记录。
 
 完成前和超时恢复：
 

@@ -18,7 +18,7 @@ Direct 默认不创建治理资料。Coordinated 将所有 Agent、Run、handoff
 <governance-home>/projects/<project-key>/project-binding.yaml
 ```
 
-binding 使用 Governance Storage Schema `1.0`，必须包含：
+新建 binding 使用 Governance Storage Schema `1.1`，并兼容读取历史 `1.0` binding；两者必须包含：
 
 - `storage_schema`
 - `project_id`
@@ -64,6 +64,9 @@ projects/<project-key>/
 ```
 
 Run 保存执行事实；Agents 保存跨 Run 身份和恢复资料。长期层不得覆盖 Run 状态。
+
+Emergency Run 的 `executors/` 和 `executors/releases/` 属于 Run-local 开发治理资料，不是目标
+项目运行依赖，也不会加入长期 `TEAM.yaml` 或角色页面。
 
 ## 4. 写入所有权
 

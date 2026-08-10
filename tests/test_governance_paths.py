@@ -70,7 +70,7 @@ class GovernancePathsTests(unittest.TestCase):
         binding = module.load_project_binding(paths.project_dir)
 
         self.assertEqual(binding_path, paths.project_dir / "project-binding.yaml")
-        self.assertEqual(binding["storage_schema"], "1.0")
+        self.assertEqual(binding["storage_schema"], "1.1")
         self.assertEqual(binding["project_id"], "website")
         self.assertEqual(binding["project_name"], "Website")
         self.assertEqual(binding["project_root"], str(self.project.resolve()))
@@ -81,7 +81,7 @@ class GovernancePathsTests(unittest.TestCase):
     def test_project_binding_schema_is_valid_json(self) -> None:
         schema = Path(__file__).parents[1] / "assets/schemas/project-binding.schema.json"
         parsed = json.loads(schema.read_text(encoding="utf-8"))
-        self.assertEqual(parsed["properties"]["storage_schema"]["const"], "1.0")
+        self.assertEqual(parsed["properties"]["storage_schema"]["enum"], ["1.0", "1.1"])
 
     def test_legacy_project_store_requires_explicit_read_only_opt_in(self) -> None:
         import sys

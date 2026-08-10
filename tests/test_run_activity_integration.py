@@ -8,12 +8,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tests.governance_test_support import governance_root
-
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 INIT = SCRIPTS / "init_run.py"
 MANAGE = SCRIPTS / "manage_run.py"
+sys.path.insert(0, str(SCRIPTS))
+
+from tests.governance_test_support import governance_root
+from executor_pool import allocate_executor
 
 
 class RunActivityIntegrationTests(unittest.TestCase):
@@ -73,14 +75,26 @@ class RunActivityIntegrationTests(unittest.TestCase):
         return [json.loads((ledger / item["path"]).read_text()) for item in index]
 
     def test_ack_lease_result_and_evidence_are_bridged_without_replacing_v3_sources(self) -> None:
+        executor = allocate_executor(
+            self.run_dir,
+            task_id="TASK-001",
+            principal_agent_id="A02-owner",
+            role_ref="owner",
+            runtime="document",
+            workspace=self.project,
+            attempt_id="ATTEMPT-002",
+        )
+        executor_id = executor["executor_id"]
         ack = Path(self.command(
             MANAGE, "write-ack", "--run-dir", self.run_dir, "--task-id", "TASK-001",
             "--agent-id", "A02-owner", "--attempt-id", "ATTEMPT-002",
+            "--executor-id", executor_id,
             "--idempotency-key", "RUN-ACTIVITY:TASK-001:ATTEMPT-002:ack:v1", *self.bridge,
         ).stdout.strip())
         lease = Path(self.command(
             MANAGE, "write-lease", "--run-dir", self.run_dir, "--task-id", "TASK-001",
             "--agent-id", "A02-owner", "--attempt-id", "ATTEMPT-002", "--lease-id", "LEASE-002",
+            "--executor-id", executor_id,
             *self.bridge,
         ).stdout.strip())
         verification = self.run_dir / "verification.txt"
@@ -88,6 +102,7 @@ class RunActivityIntegrationTests(unittest.TestCase):
         result = Path(self.command(
             MANAGE, "write-result", "--run-dir", self.run_dir, "--task-id", "TASK-001",
             "--agent-id", "A02-owner", "--attempt-id", "ATTEMPT-002", "--status", "completed",
+            "--executor-id", executor_id,
             "--outcome", "done", "--verification-status", "passed",
             "--verification-ref", verification, "--risk-summary", "none",
             "--rollback-plan", "none", *self.bridge,
@@ -107,6 +122,8 @@ class RunActivityIntegrationTests(unittest.TestCase):
         expected_hash = hashlib.sha256(self.profile.read_bytes()).hexdigest()
         for record, source in zip(records, (ack, lease, result, evidence)):
             self.assertEqual(record["attempt_id"], "ATTEMPT-002")
+            if source in {ack, lease, result}:
+                self.assertEqual(record["executor_id"], executor_id)
             self.assertEqual(record["runtime_profile"]["native_binding_sha256"], expected_hash)
             self.assertEqual(record["source"]["source_sha256"], hashlib.sha256(source.read_bytes()).hexdigest())
             self.assertIn("ATTEMPT-002", record["source"]["correlation_id"])

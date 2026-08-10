@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any
 
 from protocol_lib import event_records, frontmatter, json_string_list, parse_agent_profiles, paths_overlap, replay_task_states, scalar_map
+from executor_pool import allocate_executor, expire_stale_executors
+from conflict_model import find_conflict
 from preflight_lib import run_preflight
 from wake_agent import wake_agent
 
@@ -96,17 +98,30 @@ def tick(run_dir: str | Path, *, dry_run: bool = False, emit_events: bool = True
     manifest = scalar_map((run_dir / "manifest.yaml").read_text(encoding="utf-8"), source="manifest")
     if manifest.get("protocol_version") != "3" or manifest.get("status") in {"archived", "completed", "cancelled", "superseded"}:
         return {"run_id": manifest.get("run_id"), "bounded": True, "ready_set": [], "dispatches": [], "timeouts": [], "reason": "run_not_active"}
+    # Expire leases only after confirming the Run is active. A coordinator
+    # preview must not append lifecycle records to an archived or terminal Run.
+    expire_stale_executors(run_dir, now=now)
     agents = parse_agent_profiles((run_dir / "agents.yaml").read_text(encoding="utf-8"), source="agents")
     records = event_records(run_dir / "events")
     states, errors = replay_task_states(records, manifest.get("governance", ""))
     if errors:
         raise ValueError("invalid event history: " + "; ".join(errors))
     preflight_report: dict[str, Any] | None = None
-    # Non-central runs must pass the complete read-only preflight before any
-    # dispatch.  Do not short-circuit on a missing scope file: the preflight
-    # itself must report that gap and keep the coordinator from waking agents.
-    if manifest.get("preflight_required") == "true" and manifest.get("dispatch_policy", "central") != "central":
-        preflight_report = run_preflight(run_dir)
+    task_preflight_reports: dict[str, dict[str, Any]] = {}
+    blocked_tasks: list[dict[str, Any]] = []
+    deferred_tasks: list[dict[str, Any]] = []
+    resource_waits: list[dict[str, Any]] = []
+    preflight_required = manifest.get("preflight_required") == "true"
+    dispatch_policy = manifest.get("dispatch_policy", "central")
+    execution_profile = manifest.get("execution_profile", "normal")
+    preflight_scope = manifest.get("preflight_scope")
+    if preflight_scope in {None, "", "null"}:
+        preflight_scope = "task" if execution_profile == "emergency" else "run"
+    # Existing fast/normal runs retain the old run-wide behavior unless they
+    # explicitly opt into task scope. Emergency runs default to task scope so
+    # one incomplete task cannot create head-of-line blocking.
+    if preflight_required and dispatch_policy != "central" and preflight_scope == "run":
+        preflight_report = run_preflight(run_dir, now=now)
         if not preflight_report.get("ready"):
             return {
                 "run_id": manifest["run_id"],
@@ -115,8 +130,12 @@ def tick(run_dir: str | Path, *, dry_run: bool = False, emit_events: bool = True
                 "ready_set": [],
                 "dispatches": [],
                 "blocked_conflicts": [],
+                "blocked_tasks": [],
+                "deferred_tasks": [],
+                "resource_waits": [],
                 "timeouts": [],
                 "preflight": preflight_report,
+                "preflight_reports": {},
                 "reason": "preflight_blocked",
             }
     tasks: dict[str, tuple[Path, dict[str, str]]] = {}
@@ -133,22 +152,94 @@ def tick(run_dir: str | Path, *, dry_run: bool = False, emit_events: bool = True
         if all(states.get(dep) == "completed" for dep in deps):
             candidates.append(task_id)
     selected: list[str] = []
+    executor_bindings: dict[str, dict[str, Any]] = {}
     blocked: list[dict[str, str]] = []
     project = scalar_map((run_dir.parent.parent / "project.yaml").read_text(encoding="utf-8"), source="project")
     root = Path(project["project_root"]).resolve()
     locks = _active_locks(run_dir, now)
+    active_task_documents = [
+        pair[1]
+        for active_task_id, pair in tasks.items()
+        if states.get(active_task_id) in ACTIVE
+    ]
     for task_id in candidates:
+        if preflight_required and dispatch_policy != "central" and preflight_scope == "task":
+            report = run_preflight(run_dir, [task_id], now=now)
+            task_preflight_reports[task_id] = report
+            if report.get("run_level_blockers"):
+                preflight_report = report
+                return {
+                    "run_id": manifest["run_id"],
+                    "bounded": True,
+                    "dry_run": dry_run,
+                    "ready_set": [],
+                    "dispatches": [],
+                    "blocked_conflicts": [],
+                    "blocked_tasks": [],
+                    "deferred_tasks": [],
+                    "resource_waits": [],
+                    "timeouts": [],
+                    "preflight": preflight_report,
+                    "preflight_reports": task_preflight_reports,
+                    "reason": "preflight_blocked",
+                }
+            if not report.get("ready"):
+                blocked_tasks.append({
+                    "task_id": task_id,
+                    "reason": "task_preflight_blocked",
+                    "missing": report.get("missing", []),
+                    "conflicts": report.get("conflicts", []),
+                    "blocked_by": report.get("blocked_by", []),
+                    "next_action": report.get("next_action", "resolve_preflight"),
+                })
+                resource_waits.extend(report.get("resource_waits", []))
+                continue
         if len(selected) >= capacity:
-            break
+            deferred_tasks.append({"task_id": task_id, "reason": "max_parallel_capacity"})
+            continue
         _, task = tasks[task_id]
         owned = json_string_list(task.get("owned_paths", "[]"), field="owned_paths", source=task_id)
-        conflict = next((other for other in selected if any(paths_overlap(a, b, root) for a in owned for b in json_string_list(tasks[other][1].get("owned_paths", "[]"), field="owned_paths", source=other))), None)
+        conflict = find_conflict(
+            task,
+            [tasks[other][1] for other in selected] + active_task_documents,
+            root,
+        )
         lock = next((item for item in locks if item.get("owner_task") != task_id and any(paths_overlap(path, item.get("resource", "logical:invalid"), root) for path in owned) and not item.get("resource", "").startswith("logical:")), None)
         if conflict:
-            blocked.append({"task_id": task_id, "reason": f"owned_path_conflict:{conflict}"})
+            blocked.append({"task_id": task_id, "reason": conflict})
         elif lock:
             blocked.append({"task_id": task_id, "reason": f"lock_conflict:{lock.get('lock_id', 'unknown')}"})
         else:
+            if manifest.get("executor_policy", "fixed") == "capability_pool" and task.get("assignment_mode", "fixed") != "claimable":
+                role_ref = task.get("role_ref", task.get("owner_agent", ""))
+                required_capabilities = json_string_list(
+                    task.get("required_capabilities", "[]"),
+                    field="required_capabilities",
+                    source=task_id,
+                )
+                owner = task.get("owner_agent", "")
+                runtime = str(agents.get(owner, {}).get("runtime", "document"))
+                workspace = task.get("workspace", str(root))
+                worktree_policy = task.get("workspace_policy", "isolated_writer")
+                try:
+                    executor_bindings[task_id] = allocate_executor(
+                        run_dir,
+                        task_id=task_id,
+                        principal_agent_id=owner,
+                        role_ref=role_ref,
+                        required_capabilities=required_capabilities,
+                        runtime=runtime,
+                        workspace=workspace,
+                        worktree_policy=worktree_policy,
+                        dry_run=dry_run,
+                    )
+                except (OSError, ValueError) as exc:
+                    blocked_tasks.append({
+                        "task_id": task_id,
+                        "reason": "executor_allocation_blocked",
+                        "detail": str(exc),
+                    })
+                    continue
             selected.append(task_id)
     dispatches = []
     for task_id in selected:
@@ -163,12 +254,36 @@ def tick(run_dir: str | Path, *, dry_run: bool = False, emit_events: bool = True
                 "next_action": "eligible_agent_claim_task",
             })
             continue
-        result = wake_agent(run_dir, task_id, owner, dry_run=dry_run)
+        binding = executor_bindings.get(task_id)
+        executor_id = str(binding["executor_id"]) if binding else None
+        result = wake_agent(
+            run_dir,
+            task_id,
+            owner,
+            executor_id=None if dry_run else executor_id,
+            dry_run=dry_run,
+        )
         if emit_events and task_id not in states and not dry_run:
             _emit(run_dir, task_id, "TASK_READY", owner, task_path)
             _emit(run_dir, task_id, "TASK_DISPATCHED", owner, task_path)
-        dispatches.append({"task_id": task_id, "agent_id": owner, **result})
-    return {"run_id": manifest["run_id"], "bounded": True, "dry_run": dry_run, "ready_set": candidates, "dispatches": dispatches, "blocked_conflicts": blocked, "timeouts": _timeouts(run_dir, manifest, records, states, now), "preflight": preflight_report}
+        dispatch = {"task_id": task_id, "agent_id": owner, **result}
+        if executor_id:
+            dispatch["executor_id"] = executor_id
+        dispatches.append(dispatch)
+    return {
+        "run_id": manifest["run_id"],
+        "bounded": True,
+        "dry_run": dry_run,
+        "ready_set": candidates,
+        "dispatches": dispatches,
+        "blocked_conflicts": blocked,
+        "blocked_tasks": blocked_tasks,
+        "deferred_tasks": deferred_tasks,
+        "resource_waits": resource_waits,
+        "timeouts": _timeouts(run_dir, manifest, records, states, now),
+        "preflight": preflight_report,
+        "preflight_reports": task_preflight_reports,
+    }
 
 
 def main() -> int:

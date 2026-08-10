@@ -28,6 +28,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q
 | 用户入口 | `agents.html` 角色卡、最小启动表单、手动复制边界和无运行状态约束 |
 | 1.4.x 快车道与自助协同 | execution/dispatch policy、scope/preflight、工作 Agent 子任务发布、任务/线程串行 claim、超时恢复和候选索引 |
 | 2.0.0 外置开发治理 | Direct 零写入、Coordinated 外置绑定、Agent/Run 侧车存储、旧资料事务迁移、项目零运行依赖与旧目录 Git 门禁 |
+| 2.1.0 Emergency 并行执行 | Direct Hotfix/Coordinated Emergency 路由、任务级 Preflight、同角色 executor pool、冲突指纹、worktree policy、executor release 和 Storage Schema 1.1 兼容 |
 
 ## 发布门禁
 
@@ -41,8 +42,8 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q
 6. Markdown 本地链接检查；
 7. `git diff --check`。
 
-当前 v2.0.0 基线必须同时覆盖 Protocol v3、1.4.x 协作时效能力与外置 Governance Home。
+当前 v2.1.0 基线必须同时覆盖 Protocol v3、Emergency 任务级调度、短期 executor 和外置 Governance Home。
 本次实现用 `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p 'test_*.py' -q`
-验证 `226 tests OK`；同时要求顶层 CLI help、JSON Schema、
+验证的真实测试数以最终运行输出为准；同时要求顶层 CLI help、JSON Schema、
 HTML/JavaScript 静态检查、Markdown 本地链接和 `git diff --check` 通过。
 这些数字是发布证据，不是未来版本的固定断言；测试变化后应以最新真实命令输出更新。

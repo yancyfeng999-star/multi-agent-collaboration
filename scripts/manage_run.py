@@ -34,6 +34,7 @@ from protocol_lib import (
     sha256,
 )
 from record_agent_activity import record_agent_activity
+from executor_pool import load_executor_binding, release_executor
 
 
 RUNTIMES = ("codex_thread", "codex_subagent", "document", "document_subagent")
@@ -60,6 +61,41 @@ def safe_identifier(value: str, label: str) -> str:
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", value):
         raise SystemExit(f"{label} must contain only letters, digits, dot, underscore, or dash")
     return value
+
+
+def executor_for_attempt(
+    run_dir: Path,
+    *,
+    task_id: str,
+    agent_id: str,
+    attempt_id: str,
+    executor_id: str | None,
+) -> dict[str, str] | None:
+    """Validate an optional Run-local executor binding for an attempt receipt."""
+
+    if executor_id in {None, "", "null"}:
+        return None
+    safe_identifier(str(executor_id), "executor id")
+    try:
+        binding = load_executor_binding(run_dir, str(executor_id))
+    except (OSError, ValueError) as exc:
+        raise SystemExit(str(exc)) from exc
+    if (
+        binding.get("executor_id") != executor_id
+        or binding.get("task_id") != task_id
+        or binding.get("principal_agent_id") != agent_id
+        or binding.get("attempt_id") != attempt_id
+    ):
+        raise SystemExit("executor binding does not match task, agent, or attempt")
+    if binding.get("status") != "active":
+        raise SystemExit("executor binding is not active")
+    try:
+        expires = datetime.fromisoformat(binding.get("lease_expires_at", "").replace("Z", "+00:00"))
+    except (TypeError, ValueError) as exc:
+        raise SystemExit("executor binding lease is invalid") from exc
+    if expires <= datetime.now().astimezone():
+        raise SystemExit("executor binding lease expired")
+    return binding
 
 
 def add_common_run_argument(parser: argparse.ArgumentParser) -> None:
@@ -116,6 +152,17 @@ def parse_args() -> argparse.Namespace:
         choices=("fixed", "claimable"),
         default="fixed",
     )
+    create_task.add_argument("--role-ref")
+    create_task.add_argument("--required-capability", action="append", default=[])
+    create_task.add_argument("--logical-resource", action="append", default=[])
+    create_task.add_argument("--environment-resource", action="append", default=[])
+    create_task.add_argument("--workspace")
+    create_task.add_argument(
+        "--workspace-policy",
+        choices=("isolated_writer", "shared_read_only", "shared_no_git_mutation"),
+        default="isolated_writer",
+    )
+    create_task.add_argument("--release-lane", default="none")
     create_task.add_argument("--eligible-agent", action="append", default=[])
     create_task.add_argument("--published-by")
     create_task.add_argument("--parent-task")
@@ -183,6 +230,7 @@ def parse_args() -> argparse.Namespace:
     ack.add_argument("--task-id", required=True)
     ack.add_argument("--agent-id", required=True)
     ack.add_argument("--attempt-id", default="ATTEMPT-001")
+    ack.add_argument("--executor-id")
     ack.add_argument("--lease-seconds", type=int)
     ack.add_argument("--idempotency-key", required=True)
     add_activity_bridge_arguments(ack)
@@ -193,6 +241,7 @@ def parse_args() -> argparse.Namespace:
     lease.add_argument("--agent-id", required=True)
     lease.add_argument("--lease-id", required=True)
     lease.add_argument("--attempt-id", default="ATTEMPT-001")
+    lease.add_argument("--executor-id")
     lease.add_argument("--lease-seconds", type=int)
     add_activity_bridge_arguments(lease)
 
@@ -201,6 +250,7 @@ def parse_args() -> argparse.Namespace:
     result.add_argument("--task-id", required=True)
     result.add_argument("--agent-id", required=True)
     result.add_argument("--attempt-id", default="ATTEMPT-001")
+    result.add_argument("--executor-id")
     result.add_argument("--status", choices=("completed", "blocked", "failed"), required=True)
     result.add_argument("--outcome", required=True)
     result.add_argument("--changed-file", action="append", default=[])
@@ -373,6 +423,9 @@ def record_source_activity(
         },
         "supersedes_record_sha256": None,
     }
+    executor_id = getattr(args, "executor_id", None)
+    if executor_id not in {None, "", "null"}:
+        payload["executor_id"] = executor_id
     try:
         record_agent_activity(
             project_root=args.activity_project_root,
@@ -576,6 +629,9 @@ def command_create_task(args: argparse.Namespace) -> None:
         ("forbidden path", args.forbidden_path),
         ("risk flag", args.risk_flag),
         ("human gate", args.human_gate),
+        ("required capability", args.required_capability),
+        ("logical resource", args.logical_resource),
+        ("environment resource", args.environment_resource),
     ):
         if len(items) != len(set(items)):
             raise SystemExit(f"{field} values must be unique")
@@ -599,7 +655,19 @@ def command_create_task(args: argparse.Namespace) -> None:
         if dependency not in existing_tasks:
             raise SystemExit(f"dependency must already exist: {dependency}")
     project_root, allowed_roots = project_context(project_path)
-    owner = agents.get(args.owner_agent, {"writable_paths": [], "forbidden_paths": []})
+    if not args.workspace and manifest.get("executor_policy", "fixed") == "capability_pool":
+        # New capability-pool tasks must make their implicit writer workspace
+        # explicit so validation and conflict scheduling cannot invent a
+        # second writer in the same project root.
+        args.workspace = str(project_root)
+    owner = agents.get(args.owner_agent, {"writable_paths": [], "forbidden_paths": [], "capabilities": []})
+    role_ref = args.role_ref or args.owner_agent
+    if args.workspace and not path_within(args.workspace, allowed_roots, project_root):
+        raise SystemExit(f"workspace exceeds project allowed_roots: {args.workspace}")
+    owner_capabilities = {str(item) for item in owner.get("capabilities", [])}
+    if args.assignment_mode == "fixed" and not set(args.required_capability).issubset(owner_capabilities):
+        missing_capabilities = sorted(set(args.required_capability) - owner_capabilities)
+        raise SystemExit(f"owner lacks required capabilities: {','.join(missing_capabilities)}")
     eligible_profiles = [agents[item] for item in args.eligible_agent if item in agents]
     effective_forbidden = list(args.forbidden_path)
     for path in owner.get("forbidden_paths", []):
@@ -649,7 +717,7 @@ def command_create_task(args: argparse.Namespace) -> None:
             paths_overlap(new_path, old_path, project_root)
             for new_path in args.owned_path
             for old_path in existing_owned
-        ) and existing_task_id not in args.dependency:
+        ) and existing_task_id not in args.dependency and existing_task_id != args.parent_task:
             raise SystemExit(
                 f"owned_paths overlap {existing_task_id}; add it as a dependency to serialize"
             )
@@ -676,6 +744,8 @@ def command_create_task(args: argparse.Namespace) -> None:
             f"title: {quote(args.title)}",
             'status: "draft"',
             f"owner_agent: {quote(args.owner_agent)}",
+            f"role_ref: {quote(role_ref)}",
+            f"required_capabilities: {json.dumps(sorted(set(args.required_capability)), ensure_ascii=False)}",
             f"assignment_mode: {quote(args.assignment_mode)}",
             f"eligible_agents: {json.dumps(args.eligible_agent, ensure_ascii=False)}",
             f"published_by: {quote(published_by)}",
@@ -690,6 +760,11 @@ def command_create_task(args: argparse.Namespace) -> None:
             f"dependencies: {json.dumps(args.dependency, ensure_ascii=False)}",
             f"owned_paths: {json.dumps(args.owned_path, ensure_ascii=False)}",
             f"forbidden_paths: {json.dumps(effective_forbidden, ensure_ascii=False)}",
+            f"logical_resources: {json.dumps(sorted(set(args.logical_resource)), ensure_ascii=False)}",
+            f"environment_resources: {json.dumps(sorted(set(args.environment_resource)), ensure_ascii=False)}",
+            f"workspace: {quote(args.workspace) if args.workspace else 'null'}",
+            f"workspace_policy: {quote(args.workspace_policy)}",
+            f"release_lane: {quote(args.release_lane)}",
             f"resource_steps: {json.dumps(resource_steps, ensure_ascii=False, sort_keys=True)}",
             f"risk_flags: {json.dumps(args.risk_flag, ensure_ascii=False)}",
             f"human_gates: {json.dumps(args.human_gate, ensure_ascii=False)}",
@@ -916,6 +991,13 @@ def command_write_ack(args: argparse.Namespace) -> None:
     acknowledged_at = datetime.now().astimezone()
     lease_expires = acknowledged_at + timedelta(seconds=lease_seconds)
     safe_identifier(args.attempt_id, "attempt id")
+    binding = executor_for_attempt(
+        run_dir,
+        task_id=args.task_id,
+        agent_id=args.agent_id,
+        attempt_id=args.attempt_id,
+        executor_id=args.executor_id,
+    )
     path = (
         run_dir
         / "outbox"
@@ -933,6 +1015,7 @@ def command_write_ack(args: argparse.Namespace) -> None:
                 f"task_sha256: {quote(sha256(task_path))}",
                 f"agent_id: {quote(args.agent_id)}",
                 f"attempt_id: {quote(args.attempt_id)}",
+                f"executor_id: {quote(binding['executor_id']) if binding else 'null'}",
                 f"acknowledged_at: {quote(acknowledged_at.isoformat(timespec='seconds'))}",
                 f"lease_expires_at: {quote(lease_expires.isoformat(timespec='seconds'))}",
                 f"idempotency_key: {quote(args.idempotency_key)}",
@@ -953,6 +1036,13 @@ def command_write_lease(args: argparse.Namespace) -> None:
     task = frontmatter(task_path)
     if effective_owner(run_dir, task) != args.agent_id or args.agent_id not in agents:
         raise SystemExit("lease agent must be the registered task owner")
+    binding = executor_for_attempt(
+        run_dir,
+        task_id=args.task_id,
+        agent_id=args.agent_id,
+        attempt_id=args.attempt_id,
+        executor_id=args.executor_id,
+    )
     lease_seconds = args.lease_seconds or int(manifest["lease_seconds"])
     acquired_at = datetime.now().astimezone()
     lease_expires = acquired_at + timedelta(seconds=lease_seconds)
@@ -973,6 +1063,7 @@ def command_write_lease(args: argparse.Namespace) -> None:
                 f"task_sha256: {quote(sha256(task_path))}",
                 f"agent_id: {quote(args.agent_id)}",
                 f"attempt_id: {quote(args.attempt_id)}",
+                f"executor_id: {quote(binding['executor_id']) if binding else 'null'}",
                 f"lease_id: {quote(args.lease_id)}",
                 f"acquired_at: {quote(acquired_at.isoformat(timespec='seconds'))}",
                 f"lease_expires_at: {quote(lease_expires.isoformat(timespec='seconds'))}",
@@ -1006,6 +1097,13 @@ def command_write_result(args: argparse.Namespace) -> None:
         if not ref_path.is_file():
             raise SystemExit(f"verification reference does not exist: {reference}")
     safe_identifier(args.attempt_id, "attempt id")
+    binding = executor_for_attempt(
+        run_dir,
+        task_id=args.task_id,
+        agent_id=args.agent_id,
+        attempt_id=args.attempt_id,
+        executor_id=args.executor_id,
+    )
     path = (
         run_dir
         / "outbox"
@@ -1027,6 +1125,7 @@ def command_write_result(args: argparse.Namespace) -> None:
                 f"task_sha256: {quote(sha256(task_path))}",
                 f"agent_id: {quote(args.agent_id)}",
                 f"attempt_id: {quote(args.attempt_id)}",
+                f"executor_id: {quote(binding['executor_id']) if binding else 'null'}",
                 f"status: {quote(args.status)}",
                 f"idempotency_key: {quote(result_idempotency_key)}",
                 f"created_at: {quote(now_iso())}",
@@ -1051,6 +1150,16 @@ def command_write_result(args: argparse.Namespace) -> None:
         args, manifest=manifest, source_path=path, source_kind="result", record_kind="attempt_finished",
         attempt_status=attempt_status, task_status=attempt_status,
         outcome="success" if args.status == "completed" else "failure", summary=args.outcome))
+    if binding:
+        try:
+            release_executor(
+                run_dir,
+                binding["executor_id"],
+                args.agent_id,
+                f"attempt result: {args.status}",
+            )
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
     print(path)
 
 

@@ -11,7 +11,7 @@
 
 ## 1. 访谈原则
 
-从用户已提供的信息中预填答案，只问缺失项。一次优先询问 1–3 个高价值问题，避免把所有字段变成问卷。
+从用户已提供的信息中预填答案，只问缺失项。一次优先询问 1–3 个高价值问题，避免把所有字段变成问卷。用户说“紧急修 Bug”时，先判断是否单一、低风险、可逆：是则直接走 Direct Hotfix，不创建治理资料；只有多个独立工作单元才提出 Coordinated Emergency。
 
 必须明确：
 
@@ -22,10 +22,12 @@
 - 禁止的路径、数据、远端和命令。
 - 必须通过的测试或人工验收。
 - Coordinated 才需要选择 `light`、`standard`、`strict`。
-- execution profile：时效优先的 `fast` 或完整证据链的 `normal`（Strict 只能 normal）。
+- execution profile：单一紧急 Run 用 `emergency`（任务级门禁），普通时效优先用 `fast`，完整证据链用 `normal`（Strict 不能 fast，但可以 emergency）。
 - dispatch policy：`central`、`hybrid` 或 `self_service`，以及哪些现有 Agent 具备
   `task_publish`、`task_claim`、`thread_claim`。
 - 最大并行数量。
+- 若使用 Emergency capability pool，是否一次授权 `executor_scale_authorized`，以及每个任务的
+  `role_ref`、`required_capabilities`、workspace/worktree 和 `workspace_policy`。
 - 是否明确授权创建 Codex 线程。
 - 是否存在通用智能体，以及由谁触发它读取文档。
 - 通用智能体是否会使用子代理，以及透明子代理还是需要正式追踪的受管子代理。
@@ -133,6 +135,8 @@ release-readiness
 - 完成条件。
 - 失败退回对象。
 - 是否需要人工许可。
+- `logical_resources`、`environment_resources` 和 `release_lane`；这些字段决定无关同类型任务
+  能否并行，不按角色名称排全局队列。
 
 ## 5. 并行与串行
 
@@ -141,6 +145,7 @@ release-readiness
 - 不同目录的只读扫描。
 - 不重叠 owned paths 的实现。
 - 独立测试和文档任务。
+- 同一稳定 principal 的不同 executor，只要路径、逻辑资源、环境、worktree 和发布通道均无冲突。
 
 必须串行：
 
@@ -150,7 +155,8 @@ release-readiness
 - migration 与依赖其 schema 的实现。
 - release、rollback 和生产数据操作。
 
-存在不明确的重叠时，默认串行。
+存在不明确的重叠时，默认串行；缺少 writer workspace 的新任务视为共享项目根，必须先补充隔离
+worktree 才能并行。
 
 自助并不改变串行规则：任务发布、任务 claim、thread claim 各使用独立锁；同一 owned path、
 同一 logical resource 或同一 thread 仍不可并发。抢占只是选择唯一执行者，不是获得额外并发量。

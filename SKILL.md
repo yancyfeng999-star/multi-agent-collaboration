@@ -8,9 +8,9 @@ description: Use when a user wants to understand or manually start an Agent role
 - 中文名称：多智能体协同
 - 英文名称：Multi-Agent Collaboration
 - Skill ID：`multi-agent-collaboration`
-- Skill 版本：`2.0.0`（唯一版本权威源：`VERSION`）
+- Skill 版本：`2.1.0`（唯一版本权威源：`VERSION`）
 - Protocol 版本：`3`
-- Governance Storage Schema：`1.0`
+- Governance Storage Schema：`1.1`（兼容读取 `1.0`）
 - 调用：`$multi-agent-collaboration`
 
 ## 定位
@@ -22,6 +22,8 @@ description: Use when a user wants to understand or manually start an Agent role
 
 本 Skill 是开发治理能力，不是目标网站的运行组件。网站构建、启动、测试、部署和线上运行对治理资料零依赖。不自动创建或修改目标项目的 `AGENTS.md`。
 
+紧急 Bug 优先走最短安全路径：单一、低风险、可逆修复使用 **Direct Hotfix**；只有存在两个以上真正独立的工作单元、需要并行写入或需要可审计接力时，才使用 **Coordinated Emergency**。Emergency 缩短的是等待和资料范围，不降低生产、数据库、支付、权限、密钥、部署、删除或回滚门禁。
+
 ## 强制边界
 
 1. 先读项目、项目级指令、Git 状态、测试和版本规则，再决定是否写入。
@@ -29,7 +31,7 @@ description: Use when a user wants to understand or manually start an Agent role
 3. Coordinated 的治理根必须在目标项目之外；默认为 `~/.codex/governance/multi-agent-collaboration`。
 4. 只有项目业务源码、测试、构建配置、版本权威源和必要交付文档可位于目标项目。
 5. 旧的项目内 `.multi-agent-collaboration/` 只读兼容；只能经显式 dry-run/apply 迁移，不自动删除。
-6. 不为新功能自动增加 Agent。能交给同一 Agent 且权限、写入范围、独立审查不冲突的能力必须合并。
+6. 不为新功能自动增加长期 Agent。能交给同一 Agent 且权限、写入范围、独立审查不冲突的能力必须合并；在用户授权的 `max_parallel` 内，可以为不同任务建立 Run 内短期执行实例。
 7. Owner 不能审查自己的实现。Reviewer 与 QA 默认合并为一个独立 Quality 能力。
 8. 未经用户明确授权，不创建外部任务、不发布、不部署、不执行高风险操作。
 
@@ -51,12 +53,14 @@ description: Use when a user wants to understand or manually start an Agent role
 | 场景 | 路径 | 持久资料 |
 | --- | --- | --- |
 | 单一、明确、低风险任务 | Direct | 无 |
+| 单一紧急 Bug、需要立即修复 | Direct Hotfix | 无；部署前单独请求授权 |
 | 普通网站更新，一个 Owner 可完成 | Direct | 无 |
 | 多个独立调查，结果可由当前任务收集 | Direct + 临时子 Agent | 不建长期 Agent 层 |
 | 需要多 Agent 并行写入、ACK/lease、锁、交接或独立质量门禁 | Coordinated + Protocol v3 Run | Governance Home 内 Run |
 | 多天、稳定身份、跨会话恢复 | Coordinated + 长期 Agent 层 | Governance Home 内 Agents |
 | 长期项目的正式执行波次 | 长期层 + Run 层 | 两者同属一个外部治理项目 |
 | 生产、数据库、资金、权限、删除、发布 | Coordinated + Strict | 正式证据与人工门禁 |
+| 多个相互独立的紧急 Bug | Coordinated Emergency | 任务级 Preflight、短期执行实例和冲突指纹 |
 
 事实分工：
 
@@ -150,7 +154,9 @@ Direct 调用 `init_run.py` 会被拒绝，因为 Direct 不需要 Run。
 - `standard`：代码修改，保留 owned paths、Git、独立质量和验证证据。
 - `strict`：生产、数据库、资金、权限、密钥、删除和发布，保留安全审查、人工门禁和回滚。
 
-`execution_profile=fast` 可用于 Light/Standard，通过一次 preflight 和一次 completion preflight 减少重复唤醒；不降低路径、Secret、证据或人工门禁。Strict 不可使用 fast。
+`execution_profile=emergency` 面向时效优先的修复 Run：默认 `preflight_scope=task` 和 `executor_policy=capability_pool`，某个任务缺资料只进入 `blocked_tasks`，不阻塞无关任务。`fast` 仍可用于 Light/Standard，通过一次 preflight 和一次 completion preflight 减少重复唤醒；不降低路径、Secret、证据或人工门禁。Strict 不可使用 fast，但可以使用 emergency。
+
+Light/Standard Emergency 的低风险、本地可逆任务不因缺少完整 Run 级 `scope_freeze_ref` 而停摆；任务级路径、能力、资源、验收和真实验证仍不可省略。Strict Emergency 仍保留 scope freeze 与全部高风险门禁。
 
 `dispatch_policy`：
 
@@ -158,7 +164,11 @@ Direct 调用 `init_run.py` 会被拒绝，因为 Direct 不需要 Run。
 - `hybrid`：工作 Agent 可在已冻结父任务范围内发布子任务。
 - `self_service`：eligible Agent 还可以串行 claim 任务或线程。
 
-工作 Agent 不必唤醒主架构 Agent 才能发布父任务内的明确子任务，但必须满足父任务 hash、owned/forbidden paths、冻结范围和发布锁。同一任务、线程或高冲突资源必须串行；claim 不能覆盖未过期持有者，也不能扩大权限或发布资格。
+工作 Agent 不必唤醒主架构 Agent 才能发布父任务内的明确子任务，但必须满足父任务 hash、owned/forbidden paths、冻结范围、冲突指纹和发布锁。同一任务、线程或高冲突资源必须串行；claim 不能覆盖未过期持有者，也不能扩大权限或发布资格。
+
+### Run 内短期执行实例
+
+`principal_agent_id` 是稳定权限主体，`executor_id` 是一次 task attempt 的短期执行实例。两个无冲突任务可以绑定同一个 principal 的不同 executor，在不同 worktree 中并行；同一任务、同一写 worktree、重叠路径、logical/environment resource 和 release lane 仍然串行。执行实例只写入 Run 的 `executors/`，结束时追加 release/expiry 记录，不进入长期 TEAM 或 `agents.html`。Native 新实例只有在 `executor_scale_authorized=true` 且不超过容量时才允许创建。
 
 详见 [modes-and-gates.md](references/modes-and-gates.md)和 [document-protocol.md](references/document-protocol.md)。
 
@@ -175,7 +185,7 @@ Direct 调用 `init_run.py` 会被拒绝，因为 Direct 不需要 Run。
 
 详见 [version-governance.md](references/version-governance.md)。
 
-## 事件、冲突与可靠性
+## Emergency、冲突与可靠性
 
 Coordinated 保持 Protocol v3 语义：
 
@@ -183,6 +193,8 @@ Coordinated 保持 Protocol v3 语义：
 - 先写任务文档和 `TASK_READY`，再 `TASK_DISPATCHED` 并唤醒执行者。
 - ACK、lease、result、Review、QA、人工许可和 dead letter 必须是可校验 payload。
 - 同一高冲突文件、schema、全局样式、注册表、锁文件、版本源和发布账本必须串行。
+- Coordinator 和工作 Agent 都使用 dependency/path/logical/workspace/environment/release 六维冲突指纹；无关同类型任务不再按角色排全局队列。
+- `blocked_tasks` 表示任务级门禁缺口，`deferred_tasks` 表示容量或冲突等待，`run_level_blockers` 只保留 manifest、Protocol、项目根失效等全局故障。
 - 超时先检查副作用；不伪造失败，不自动重投可能已产生副作用的任务。
 - 不覆盖用户或其他任务的未提交改动。
 
@@ -219,6 +231,7 @@ python3 <skill-dir>/scripts/migrate_governance_storage.py \
 
 - Direct：验证项目改动和测试，并确认项目中没有新治理资料。
 - Coordinated：同时验证 binding、Agent 层、Run 层、hash、路径范围、Review/QA 与人工门禁。
+- Emergency capability pool：另外验证 executor binding、worktree policy、claim/thread/operation 的 `executor_id` 一致性，以及 release/expiry 记录。
 - 不把“已创建任务文档”说成“Agent 已执行”，不把本地验证说成远程或生产验收。
 
 脚本索引见 [scripts/README.md](scripts/README.md)，详细规范索引见 [references/README.md](references/README.md)。

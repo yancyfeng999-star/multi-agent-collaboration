@@ -2,14 +2,18 @@
 
 ## 0. Skill、Protocol、Storage 与项目版本边界
 
-四个版本对象必须独立：Skill 版本以根 `VERSION` 为权威源；Protocol 版本当前为 `3`；Governance Storage Schema 当前为 `1.0`；项目业务版本只以目标项目自身权威源为准。
+四个版本对象必须独立：Skill 版本以根 `VERSION` 为权威源；Protocol 版本当前为 `3`；Governance Storage Schema 当前为 `1.1`（兼容读取 `1.0`）；项目业务版本只以目标项目自身权威源为准。
 
 Direct 默认不创建版本合同或 Run，但仍必须按项目自身规则判断本次交付是否应更新业务版本。Coordinated 才使用 `tracked`/`not_applicable`、version contract、Release Train 和 RC，且这些资料只写项目外 Governance Home。
 
 旧 Run 不会被原地改写。`migrate_run_optimization.py` 只迁移 v3 Run 的可选执行字段；`migrate_governance_storage.py` 将旧项目内治理资料复制并校验到 Governance Home。两种迁移都不改变项目业务版本，也不授予发布权限。
 
-运行时的项目版本继续由 Coordinator 集中治理；`fast`、self-service、claim 或 retry attempt
+运行时的项目版本继续由 Coordinator 集中治理；`emergency`、`fast`、self-service、claim 或 retry attempt
 都不能直接递增项目版本。只有交付范围、兼容性或项目自身版本规则触发时，才建立新的版本合同。
+
+Direct Hotfix 不创建版本合同；当前 Agent 先按目标项目自身规则判断是否需要业务版本变更，
+涉及正式发布时才在发布动作前进入项目既有版本/授权流程。Coordinated Emergency 仍必须在
+初始化时明确 `tracked` 或 `not_applicable`，但不因建立短期 executor 自动递增业务版本。
 
 ## 1. 目标
 

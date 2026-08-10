@@ -20,6 +20,8 @@
     "task_id": {"type": "string", "pattern": "^TASK-[A-Za-z0-9][A-Za-z0-9._-]*$"},
     "title": {"type": "string", "minLength": 1, "maxLength": 200},
     "owner": {"type": "string", "minLength": 1},
+    "role_ref": {"type": "string", "minLength": 1},
+    "required_capabilities": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
     "assignment_mode": {"type": "string", "enum": ["fixed", "claimable"]},
     "eligible_agents": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
     "published_by": {"type": "string"},
@@ -33,6 +35,11 @@
     "required_context_files": {"type": "array", "items": {"type": "string"}},
     "dependencies": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^TASK-[A-Za-z0-9][A-Za-z0-9._-]*$"}},
     "allowed_writes": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "logical_resources": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "environment_resources": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "workspace_policy": {"type": "string", "enum": ["isolated_writer", "shared_read_only", "shared_no_git_mutation"]},
+    "workspace": {"type": ["string", "null"]},
+    "release_lane": {"type": "string", "minLength": 1},
     "resource_steps": {
       "type": "array",
       "items": {

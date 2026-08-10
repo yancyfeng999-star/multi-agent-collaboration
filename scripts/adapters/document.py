@@ -17,6 +17,7 @@ def dispatch(run_dir: Path, operation: dict[str, Any], *, dry_run: bool = False)
         "run_id": operation["run_id"],
         "task_id": operation["task_id"],
         "agent_id": owner,
+        "executor_id": operation.get("executor_id"),
         "workspace": operation["workspace"],
         "task_path": operation["task_path"],
         "task_sha256": operation["task_sha256"],

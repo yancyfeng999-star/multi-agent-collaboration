@@ -12,6 +12,7 @@
 | `agents.yaml.template` | Run 内 Agent Registry |
 | `manifest.yaml.template` | Run 策略、治理、版本合同引用和任务索引 |
 | `task.md.template` | 冻结任务、角色、路径、版本绑定和验收条件 |
+| `executor-binding.yaml.template` | Run 内短期执行实例、稳定 principal、worktree 和 lease |
 | `next-action.md.template` | 可恢复的下一步操作 |
 | `result.md.template` | Owner 的不可变执行结果 |
 
@@ -25,6 +26,7 @@
 | `lock.yaml.template` | 路径或逻辑资源锁 |
 | `claims/tasks/` | 任务池的不可变 task claim/release（由 `agent_claim.py` 写入） |
 | `claims/threads/` | thread 的不可变 claim/release，绑定 platform、session 线索和 workspace |
+| `executors/` | 同角色短期执行实例 binding；不进入长期 TEAM 或 `agents.html` |
 | `config/retry-policy.yaml` | fast/normal 的超时、重试、side-effect 和不可变事件策略 |
 | `dead-letter.yaml.template` | 重试耗尽后的失败记录 |
 | `evidence.yaml.template` | Review、QA、安全、发布或验证证据 |
@@ -93,6 +95,7 @@
 | `schemas/runtime-profile.schema.json` | 单次 Session 不可变 Runtime Profile Schema |
 | `schemas/agent-activity.schema.json` | Task Attempt Activity 与真实 usage 引用 Schema |
 | `schemas/preflight-result.schema.json` | dispatch/completion 只读缺口报告 Schema |
+| `schemas/executor-binding.schema.json` | Run 内 executor binding 与 worktree policy Schema |
 | `schemas/candidate-summary.schema.json` | 完成/发布整备候选索引 Schema |
 
 模板中的 `<placeholder>` 不是有效运行数据。不要复制模板后声称任务、审批、验证或发布已经

@@ -71,6 +71,21 @@ class OptimizationFeatureTests(unittest.TestCase):
         for key, option in (("assignment_mode", "--assignment-mode"), ("published_by", "--published-by"), ("parent_task", "--parent-task")):
             if key in extra:
                 arguments.extend((option, extra[key]))
+        for key, option in (
+            ("role_ref", "--role-ref"),
+            ("workspace", "--workspace"),
+            ("workspace_policy", "--workspace-policy"),
+            ("release_lane", "--release-lane"),
+        ):
+            if key in extra:
+                arguments.extend((option, extra[key]))
+        for key, option in (
+            ("required_capability", "--required-capability"),
+            ("logical_resource", "--logical-resource"),
+            ("environment_resource", "--environment-resource"),
+        ):
+            for value in extra.get(key, []):
+                arguments.extend((option, value))
         for resource_step in extra.get("resource_step", []):
             arguments.extend(("--resource-step", json.dumps(resource_step, ensure_ascii=False)))
         for eligible in extra.get("eligible_agent", []):
@@ -126,6 +141,54 @@ class OptimizationFeatureTests(unittest.TestCase):
         events = "\n".join(path.read_text(encoding="utf-8") for path in (self.run_dir / "events").glob("*.yaml"))
         self.assertIn('from_agent: "worker"', events)
         self.assertNotIn('from_agent: "coordinator"', events)
+
+    def test_self_service_publishes_conflict_metadata_for_pool_scheduler(self) -> None:
+        self.create_task("TASK-PARENT", "worker", self.project / "src" / "parent")
+        self.command(FREEZE, "--run-dir", self.run_dir, "--requested-path", "src", "--target-environment", "local")
+        (self.project / "src" / "child-exec").mkdir()
+        result = self.command(
+            DISPATCH, "publish", "--run-dir", self.run_dir,
+            "--publisher-agent", "worker", "--parent-task", "TASK-PARENT",
+            "--task-id", "TASK-CHILD-META", "--title", "child", "--objective", "child work",
+            "--owner-agent", "pool", "--assignment-mode", "claimable",
+            "--eligible-agent", "worker", "--owned-path", self.project / "src" / "child-meta",
+            "--role-ref", "frontend", "--required-capability", "frontend",
+            "--logical-resource", "model:image", "--environment-resource", "local:browser",
+            "--workspace", self.project / "src" / "child-meta",
+            "--workspace-policy", "isolated_writer", "--release-lane", "none",
+        )
+        self.assertTrue(json.loads(result.stdout)["ready"])
+        task = (self.run_dir / "tasks" / "TASK-CHILD-META.md").read_text(encoding="utf-8")
+        self.assertIn('role_ref: "frontend"', task)
+        self.assertIn('required_capabilities: ["frontend"]', task)
+        self.assertIn('logical_resources: ["model:image"]', task)
+        self.assertIn('environment_resources: ["local:browser"]', task)
+        self.assertIn(f'workspace: "{self.project / "src" / "child-meta"}"', task)
+        self.assertIn('workspace_policy: "isolated_writer"', task)
+
+    def test_self_service_fixed_child_gets_run_local_executor(self) -> None:
+        manifest_path = self.run_dir / "manifest.yaml"
+        manifest_path.write_text(
+            manifest_path.read_text(encoding="utf-8")
+            .replace('executor_policy: "fixed"', 'executor_policy: "capability_pool"')
+            .replace('executor_scale_authorized: false', 'executor_scale_authorized: true'),
+            encoding="utf-8",
+        )
+        self.create_task("TASK-PARENT", "worker", self.project / "src" / "parent")
+        self.command(FREEZE, "--run-dir", self.run_dir, "--requested-path", "src", "--target-environment", "local")
+        (self.project / "src" / "child-exec").mkdir()
+        result = self.command(
+            DISPATCH, "publish", "--run-dir", self.run_dir,
+            "--publisher-agent", "worker", "--parent-task", "TASK-PARENT",
+            "--task-id", "TASK-CHILD-EXEC", "--title", "child", "--objective", "child work",
+            "--owner-agent", "worker", "--owned-path", self.project / "src" / "child-exec",
+            "--workspace", self.project / "src" / "child-exec",
+        )
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["executor_id"].startswith("EXEC-"))
+        self.assertTrue((self.run_dir / "executors" / f'{payload["executor_id"]}.yaml').is_file())
+        operation = next((self.run_dir / "operations").glob("*.json"))
+        self.assertEqual(json.loads(operation.read_text(encoding="utf-8"))["executor_id"], payload["executor_id"])
 
     def test_task_and_thread_claims_are_serialized(self) -> None:
         manifest_path = self.run_dir / "manifest.yaml"

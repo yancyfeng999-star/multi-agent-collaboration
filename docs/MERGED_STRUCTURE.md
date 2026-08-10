@@ -84,13 +84,18 @@ binding 是治理层到真实项目的唯一身份入口。治理根和项目根
 
 ### Protocol v3 Run 层
 
-负责单次正式执行：冻结任务、不可变事件、ACK/lease、锁、attempt、result、evidence、Review、QA、人工门禁、版本合同和 Release Candidate。
+负责单次正式执行：冻结任务、不可变事件、ACK/lease、锁、attempt、result、evidence、Review、QA、人工门禁、版本合同和 Release Candidate。Emergency Run 还可在本层创建 `executors/` 短期执行实例；它们按 task/worktree lease 存在，不属于长期 Agent 层。
 
 ### 长期 Agent 层
 
 负责跨 Run 连续性：稳定身份、Runtime Profile、Activity Ledger、对话 archive、checkpoint、handoff、恢复包、Bridge、项目 checkpoint、索引和最终审计。
 
 两层同时使用时，**Run 是执行状态真源**。长期层只沉淀通过校验的引用和快照。
+
+稳定 `principal_agent_id` 代表权限和角色；`executor_id` 代表一次实际 task attempt。无冲突的
+同类型任务可以使用不同 executor 并行，冲突路径、共享 logical/environment resource、同一
+worktree 写入和 release lane 仍由 Run 串行化。executor release/expiry 只追加治理证据，不污染
+TEAM、Agent Profile 或用户角色页。
 
 ## 4. 运行资料三层
 

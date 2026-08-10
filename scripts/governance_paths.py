@@ -16,7 +16,8 @@ except ImportError:  # pragma: no cover - exercised by top-level CLI imports.
     from protocol_lib import ProtocolError, atomic_write, now_iso
 
 
-STORAGE_SCHEMA = "1.0"
+STORAGE_SCHEMA = "1.1"
+SUPPORTED_STORAGE_SCHEMAS = {"1.0", STORAGE_SCHEMA}
 DEFAULT_GOVERNANCE_PARTS = (".codex", "governance", "multi-agent-collaboration")
 
 
@@ -146,7 +147,7 @@ def load_project_binding(governance_project_root: str | Path) -> dict[str, Any]:
     }
     if not isinstance(value, dict) or set(value) != required:
         raise ProtocolError(f"invalid governance project binding fields: {path}")
-    if value["storage_schema"] != STORAGE_SCHEMA:
+    if value["storage_schema"] not in SUPPORTED_STORAGE_SCHEMAS:
         raise ProtocolError(f"unsupported governance storage schema: {value['storage_schema']}")
     allowed_roots = value["allowed_roots"]
     if allowed_roots != [value["project_root"]]:

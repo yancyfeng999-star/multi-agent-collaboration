@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Run-local Executor Binding",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "executor_id",
+    "principal_agent_id",
+    "role_ref",
+    "task_id",
+    "attempt_id",
+    "required_capabilities",
+    "runtime",
+    "workspace",
+    "worktree_policy",
+    "lease_acquired_at",
+    "lease_expires_at",
+    "status"
+  ],
+  "properties": {
+    "schema_version": {"type": "string", "const": "1.0"},
+    "executor_id": {"type": "string", "pattern": "^EXEC-[A-Za-z0-9][A-Za-z0-9._-]*$"},
+    "principal_agent_id": {"type": "string", "minLength": 1},
+    "role_ref": {"type": "string", "minLength": 1},
+    "task_id": {"type": "string", "pattern": "^TASK-[A-Za-z0-9][A-Za-z0-9._-]*$"},
+    "attempt_id": {"type": "string", "minLength": 1},
+    "required_capabilities": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "runtime": {"type": "string", "enum": ["codex_thread", "hermes", "document"]},
+    "session_id": {"type": ["string", "null"]},
+    "thread_id": {"type": ["string", "null"]},
+    "workspace": {"type": "string", "minLength": 1},
+    "worktree_policy": {"type": "string", "enum": ["isolated_writer", "shared_read_only", "shared_no_git_mutation"]},
+    "lease_acquired_at": {"type": "string"},
+    "lease_expires_at": {"type": "string"},
+    "status": {"type": "string", "enum": ["active", "released", "expired", "failed"]}
+  }
+}

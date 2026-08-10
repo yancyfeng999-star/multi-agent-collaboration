@@ -29,9 +29,29 @@ from protocol_lib import (
 
 
 GOVERNANCE = {"light", "standard", "strict"}
-EXECUTION_PROFILES = {"fast", "normal"}
+EXECUTION_PROFILES = {"emergency", "fast", "normal"}
 DISPATCH_POLICIES = {"central", "hybrid", "self_service"}
 CAPABILITIES = {"task_publish", "task_claim", "thread_claim"}
+RUN_LEVEL_FIELDS = {
+    "tasks",
+    "scope_freeze_ref",
+    "scope_freeze_ref_sha256",
+    "version_contract_ref",
+    "version_contract_ref_sha256",
+    "git_status",
+    "git_branch",
+    "change_id",
+    "registry_ref",
+    "registry_ref_sha256",
+    "environment_impact_ref",
+    "environment_impact_ref_sha256",
+    "rollback_ref",
+    "rollback_ref_sha256",
+    "security_review_ref",
+    "security_review_ref_sha256",
+    "release_authorization_ref",
+    "release_authorization_ref_sha256",
+}
 
 
 def default_dispatch_policy(governance: str) -> str:
@@ -228,16 +248,56 @@ def _report(
     missing = sorted(missing or [], key=lambda value: (value["field"], value["owner"], value["reason"]))
     conflicts = sorted(conflicts or [], key=lambda value: (value.get("task_id", ""), value.get("reason", "")))
     blocked_by = sorted(blocked_by or [], key=lambda value: (value.get("task_id", ""), value.get("reason", "")))
+    run_level_blockers = [
+        {"field": item["field"], "owner": item["owner"], "reason": item["reason"]}
+        for item in missing
+        if item.get("field") in RUN_LEVEL_FIELDS
+    ]
+    run_level_blockers.extend(
+        {"task_id": item.get("task_id", "run"), "reason": item.get("reason", "unknown")}
+        for item in [*conflicts, *blocked_by]
+        if item.get("task_id") == "run"
+    )
+    run_level_blockers = sorted(
+        run_level_blockers,
+        key=lambda value: (value.get("field", ""), value.get("task_id", ""), value.get("reason", "")),
+    )
+    blocked_tasks = sorted(
+        [
+            {"task_id": item["field"].split(":", 2)[1], "reason": f"missing:{item['field']}"}
+            for item in missing
+            if item.get("field", "").startswith("task:")
+        ]
+        + [
+            {"task_id": item["task_id"], "reason": item.get("reason", "conflict")}
+            for item in [*conflicts, *blocked_by]
+            if item.get("task_id") not in {None, "run"}
+            and not str(item.get("reason", "")).startswith("resource_step_not_ready:")
+        ],
+        key=lambda value: (value["task_id"], value["reason"]),
+    )
+    resource_waits = sorted(
+        [
+            {"task_id": item.get("task_id", ""), "reason": item.get("reason", "")}
+            for item in blocked_by
+            if str(item.get("reason", "")).startswith("resource_step_not_ready:")
+        ],
+        key=lambda value: (value["task_id"], value["reason"]),
+    )
+    profile_scope = manifest.get("preflight_scope")
+    if profile_scope in {None, "", "null"}:
+        profile_scope = "task" if profile == "emergency" else "run"
     if next_action is None:
         next_action = "ready" if not missing and not conflicts and not blocked_by else "resolve_preflight"
     handoffs = 0 if governance == "light" else 1
     return {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "run_id": manifest.get("run_id"),
         "task_ids": sorted(task_ids),
         "governance": governance,
         "execution_profile": profile,
         "dispatch_policy": policy,
+        "preflight_scope": profile_scope,
         "ready": not missing and not conflicts and not blocked_by,
         "missing": missing,
         "conflicts": conflicts,
@@ -245,6 +305,10 @@ def _report(
         "required_actions": [next_action] if next_action != "ready" else [],
         "estimated_handoffs": handoffs,
         "next_action": next_action,
+        "blocked_tasks": blocked_tasks,
+        "deferred_tasks": [],
+        "resource_waits": resource_waits,
+        "run_level_blockers": run_level_blockers,
         "checked_at": datetime.now().astimezone().isoformat(timespec="seconds"),
     }
 
@@ -289,12 +353,13 @@ def run_preflight(
         context = _load_context(run_dir)
     except (OSError, ProtocolError, KeyError, ValueError) as exc:
         return {
-            "schema_version": "1.0",
+            "schema_version": "1.1",
             "run_id": None,
             "task_ids": sorted(task_ids or []),
             "governance": None,
             "execution_profile": None,
             "dispatch_policy": None,
+            "preflight_scope": "run",
             "ready": False,
             "missing": [],
             "conflicts": [],
@@ -302,6 +367,10 @@ def run_preflight(
             "required_actions": ["repair_run_structure"],
             "estimated_handoffs": 0,
             "next_action": "repair_run_structure",
+            "blocked_tasks": [],
+            "deferred_tasks": [],
+            "resource_waits": [],
+            "run_level_blockers": [{"task_id": "run", "reason": str(exc)}],
             "checked_at": now.isoformat(timespec="seconds"),
         }
 
@@ -413,7 +482,13 @@ def run_preflight(
                 missing.append(_item(field, "coordinator", "strict dispatch requires an attached branch"))
 
     scope_ref = manifest.get("scope_freeze_ref", "null")
-    if manifest.get("preflight_required", "false") == "true" and selected and scope_ref in {"", "null", None}:
+    scope_required = profile != "emergency" or governance == "strict"
+    if (
+        manifest.get("preflight_required", "false") == "true"
+        and selected
+        and scope_required
+        and scope_ref in {"", "null", None}
+    ):
         missing.append(_item("scope_freeze_ref", "coordinator", "freeze the requested paths before dispatch"))
     if scope_ref not in {"", "null", None}:
         scope_path = Path(scope_ref).expanduser()
@@ -459,12 +534,15 @@ def run_completion_preflight(run_dir: str | Path, task_id: str) -> dict[str, Any
         context = _load_context(run_dir)
     except (OSError, ProtocolError, KeyError, ValueError) as exc:
         return {
-            "schema_version": "1.0", "run_id": None, "task_ids": [task_id],
+            "schema_version": "1.1", "run_id": None, "task_ids": [task_id],
             "governance": None, "execution_profile": None, "dispatch_policy": None,
+            "preflight_scope": "task",
             "ready": False, "missing": [], "conflicts": [],
             "blocked_by": [{"task_id": task_id, "reason": str(exc)}],
             "required_actions": ["repair_run_structure"], "estimated_handoffs": 0,
             "next_action": "repair_run_structure",
+            "blocked_tasks": [], "deferred_tasks": [], "resource_waits": [],
+            "run_level_blockers": [{"task_id": task_id, "reason": str(exc)}],
             "checked_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         }
     task_pair = context["tasks"].get(task_id)

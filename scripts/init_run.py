@@ -58,15 +58,26 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--governance", choices=("light", "standard", "strict"), required=True)
     parser.add_argument(
         "--execution-profile",
-        choices=("fast", "normal"),
+        choices=("emergency", "fast", "normal"),
         default="normal",
-        help="Latency preference; fast never lowers governance gates",
+        help="Latency preference; emergency/fast never lower governance gates",
     )
     parser.add_argument(
         "--dispatch-policy",
         choices=("auto", "central", "hybrid", "self_service"),
         default="auto",
         help="Who may publish scoped tasks; auto selects a safe mode default",
+    )
+    parser.add_argument(
+        "--executor-policy",
+        choices=("auto", "fixed", "capability_pool"),
+        default="auto",
+        help="Whether tasks use fixed Agent identities or Run-local capability executors",
+    )
+    parser.add_argument(
+        "--executor-scale-authorized",
+        action="store_true",
+        help="Allow additional native executor instances within max_parallel",
     )
     parser.add_argument(
         "--transport",
@@ -156,6 +167,10 @@ def main() -> int:
         raise SystemExit("strict governance cannot use the fast execution profile")
     if args.governance == "strict" and dispatch_policy != "central":
         raise SystemExit("strict governance requires central dispatch policy")
+    executor_policy = args.executor_policy
+    if executor_policy == "auto":
+        executor_policy = "capability_pool" if args.execution_profile == "emergency" else "fixed"
+    preflight_scope = "task" if args.execution_profile == "emergency" else "run"
 
     timestamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
     run_id = args.run_id or f"RUN-{timestamp}-{secrets.token_hex(3)}"
@@ -291,6 +306,7 @@ def main() -> int:
         "delegations",
         "claims/tasks",
         "claims/threads",
+        "executors",
         "native/threads",
         "native/operations",
         "versions/candidates",
@@ -451,11 +467,16 @@ def main() -> int:
                 f"objective: {quote(args.objective)}",
                 'status: "initializing"',
                 'coordination_mode: "coordinated"',
-                'governance_storage_schema: "1.0"',
+                'governance_storage_schema: "1.1"',
                 f"governance: {quote(args.governance)}",
                 f"execution_profile: {quote(args.execution_profile)}",
                 f"dispatch_policy: {quote(dispatch_policy)}",
                 "preflight_required: true",
+                f"preflight_scope: {quote(preflight_scope)}",
+                f"executor_policy: {quote(executor_policy)}",
+                f"executor_scale_authorized: {'true' if args.executor_scale_authorized else 'false'}",
+                'max_instances_per_role: {}',
+                'incident_ref: null',
                 f"transport: {quote(args.transport)}",
                 f"max_parallel: {args.max_parallel}",
                 f"max_document_delegation_depth: {args.max_document_delegation_depth}",

@@ -77,6 +77,13 @@ Coordinated Governance Home 有 `TEAM.yaml` 时，可以将稳定角色字段投
 职责、能力和调用说明，不包含执行状态。Governance Home 没有长期 Agent 资料时，继续使用通用角色卡，
 不得凭空生成项目 Agent 数量或职责。
 
+## 紧急任务路由
+
+- 单一、低风险、可逆的紧急 Bug：使用 Direct Hotfix，当前 Agent 直接读取、修复和定向验证，不创建 Run。
+- 两个以上真正独立的紧急任务：用户确认后使用 Coordinated Emergency；任务按冲突指纹分流，同一稳定角色可以在不同任务上拥有多个 Run 内短期 `executor_id`。
+- executor 不是新的长期 Agent，不进入 TEAM、Profile 或此页面；它只绑定一个 task attempt、一个 workspace 和一段 lease，结束时追加 release/expiry 记录。
+- 共享文件、数据库 schema、版本源、生产环境或 release lane 的任务必须串行；并行额度只由 Run 的 `max_parallel` 和已授权的 `executor_scale_authorized` 控制。
+
 ## 何时进入高级治理
 
 用户明确要求以下任一项时，才从人工启动模式切换到 Protocol v3 Run 或长期 Agent 层：

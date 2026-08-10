@@ -40,6 +40,11 @@ def migrate(run_dir_value: str | Path, *, apply: bool = False, rollback: bool = 
     fields = {
         "execution_profile": '"normal"',
         "dispatch_policy": '"central"',
+        "preflight_scope": '"run"',
+        "executor_policy": '"fixed"',
+        "executor_scale_authorized": "false",
+        "max_instances_per_role": "{}",
+        "incident_ref": "null",
         "preflight_required": "false",
         "scope_freeze_ref": "null",
         "scope_freeze_ref_sha256": "null",

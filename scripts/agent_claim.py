@@ -13,6 +13,7 @@ from pathlib import Path
 
 from project_memory_lib import exclusive_lock
 from claim_lib import active_task_claim, effective_owner
+from executor_pool import allocate_executor, load_executor_binding, release_executor
 from preflight_lib import _active_locks, _load_context
 from protocol_lib import atomic_write, event_records, frontmatter, json_string_list, path_within, paths_overlap, quote, replay_task_states, scalar_map, sha256
 
@@ -49,9 +50,30 @@ def _active_claims(directory: Path, now: datetime) -> list[dict[str, str]]:
     return active
 
 
-def _claim_id(prefix: str, run_id: str, resource: str, agent: str) -> str:
-    digest = hashlib.sha256(f"{run_id}\0{resource}\0{agent}".encode("utf-8")).hexdigest()[:20]
+def _claim_id(prefix: str, run_id: str, resource: str, agent: str, executor_id: str | None = None) -> str:
+    material = f"{run_id}\0{resource}\0{agent}"
+    if executor_id:
+        material += f"\0{executor_id}"
+    digest = hashlib.sha256(material.encode("utf-8")).hexdigest()[:20]
     return f"CLAIM-{prefix}-{digest}"
+
+
+def _executor_binding(
+    context: dict[str, object],
+    task_id: str,
+    agent_id: str,
+    executor_id: str | None,
+) -> dict[str, str] | None:
+    if not executor_id:
+        return None
+    binding = load_executor_binding(context["run_dir"], executor_id)
+    if binding.get("task_id") != task_id:
+        raise ValueError("executor binding task does not match claim task")
+    if binding.get("principal_agent_id") != agent_id:
+        raise ValueError("executor binding principal does not match claim agent")
+    if binding.get("status") != "active":
+        raise ValueError("executor binding is not active")
+    return binding
 
 
 def _validate_claim_runtime(context: dict[str, object], task: dict[str, str], now: datetime) -> None:
@@ -76,7 +98,11 @@ def _validate_claim_runtime(context: dict[str, object], task: dict[str, str], no
         resource = lock.get("resource", "")
         if resource and not resource.startswith("logical:") and any(paths_overlap(resource, path, root) for path in owned):
             raise ValueError("claim path conflicts with an active lock")
-    if manifest.get("preflight_required", "false") != "true":
+    scope_required = (
+        manifest.get("execution_profile", "normal") != "emergency"
+        or manifest.get("governance") == "strict"
+    )
+    if manifest.get("preflight_required", "false") != "true" or not scope_required:
         return
     scope_ref = manifest.get("scope_freeze_ref", "null")
     if scope_ref in {"", "null", None}:
@@ -96,13 +122,22 @@ def _validate_claim_runtime(context: dict[str, object], task: dict[str, str], no
             raise ValueError(f"claim owned path is forbidden by scope: {path}")
 
 
-def claim_task(run_dir_value: str | Path, task_id: str, agent_id: str, lease_seconds: int, *, dry_run: bool = False) -> dict[str, object]:
+def claim_task(
+    run_dir_value: str | Path,
+    task_id: str,
+    agent_id: str,
+    lease_seconds: int,
+    *,
+    executor_id: str | None = None,
+    dry_run: bool = False,
+) -> dict[str, object]:
     context = _load_context(run_dir_value)
     run_dir = context["run_dir"]
     if context["manifest"].get("governance") == "strict" or context["manifest"].get("dispatch_policy", "central") not in {"hybrid", "self_service"}:
         raise ValueError("task claims require hybrid or self_service dispatch under non-strict governance")
     if agent_id not in context["agents"]:
         raise ValueError(f"agent is not registered: {agent_id}")
+    binding = _executor_binding(context, task_id, agent_id, executor_id)
     if "task_claim" not in _capabilities(context["agents"][agent_id]):
         raise ValueError("agent lacks task_claim capability")
     pair = context["tasks"].get(task_id)
@@ -121,7 +156,7 @@ def claim_task(run_dir_value: str | Path, task_id: str, agent_id: str, lease_sec
     claim_dir = run_dir / "claims" / "tasks"
     if not dry_run:
         claim_dir.mkdir(parents=True, exist_ok=True)
-    claim_id = _claim_id("TASK", context["manifest"]["run_id"], task_id, agent_id)
+    claim_id = _claim_id("TASK", context["manifest"]["run_id"], task_id, agent_id, executor_id)
     claim_path = claim_dir / f"{claim_id}.yaml"
     active = [item for item in _active_claims(claim_dir, now) if item.get("task_id") == task_id]
     if active:
@@ -164,6 +199,27 @@ def claim_task(run_dir_value: str | Path, task_id: str, agent_id: str, lease_sec
         raise ValueError("claimable task must be TASK_READY before it can be claimed")
     acquired = now.isoformat(timespec="seconds")
     expires = (now + timedelta(seconds=lease_seconds)).isoformat(timespec="seconds")
+    executor_created = False
+    if executor_id is None and context["manifest"].get("executor_policy", "fixed") == "capability_pool":
+        executor = allocate_executor(
+            run_dir,
+            task_id=task_id,
+            principal_agent_id=agent_id,
+            role_ref=task.get("role_ref", agent_id),
+            required_capabilities=json_string_list(
+                task.get("required_capabilities", "[]"),
+                field="required_capabilities",
+                source=str(task_path),
+            ),
+            runtime=str(context["agents"][agent_id].get("runtime", "document")),
+            workspace=task.get("workspace", str(context["project_root"])),
+            worktree_policy=task.get("workspace_policy", "isolated_writer"),
+            dry_run=dry_run,
+        )
+        executor_id = str(executor["executor_id"])
+        executor_created = not bool(executor.get("reused"))
+        claim_id = _claim_id("TASK", context["manifest"]["run_id"], task_id, agent_id, executor_id)
+        claim_path = claim_dir / f"{claim_id}.yaml"
     content = "\n".join(
         (
             "protocol_version: 3",
@@ -173,6 +229,7 @@ def claim_task(run_dir_value: str | Path, task_id: str, agent_id: str, lease_sec
             f"task_id: {quote(task_id)}",
             f"task_sha256: {quote(sha256(task_path))}",
             f"claimer_agent: {quote(agent_id)}",
+            f"executor_id: {quote(executor_id) if executor_id else 'null'}",
             f"eligible_agents: {json.dumps(eligible, ensure_ascii=False)}",
             f"lease_acquired_at: {quote(acquired)}",
             f"lease_expires_at: {quote(expires)}",
@@ -182,11 +239,12 @@ def claim_task(run_dir_value: str | Path, task_id: str, agent_id: str, lease_sec
         )
     )
     if not dry_run:
+        conflict_result: dict[str, object] | None = None
         with exclusive_lock(run_dir / "locks" / ".task-claim.lock"):
             active = [item for item in _active_claims(claim_dir, _now()) if item.get("task_id") == task_id]
             if active:
                 holder = active[0]
-                return {
+                conflict_result = {
                     "ready": False,
                     "conflict": True,
                     "task_id": task_id,
@@ -195,10 +253,15 @@ def claim_task(run_dir_value: str | Path, task_id: str, agent_id: str, lease_sec
                     "blocked_by": "active_task_claim",
                     "next_action": "wait_for_claim_release_or_timeout_recovery",
                 }
-            if claim_path.exists():
+            elif claim_path.exists():
                 raise ValueError(f"claim id collision: {claim_path}")
-            atomic_write(claim_path, content)
-        dispatch = _dispatch_claimed_task(run_dir, task_id, agent_id, claim_id)
+            else:
+                atomic_write(claim_path, content)
+        if conflict_result is not None:
+            if executor_id and executor_created:
+                release_executor(run_dir, executor_id, agent_id, "claim lost race", dry_run=False)
+            return conflict_result
+        dispatch = _dispatch_claimed_task(run_dir, task_id, agent_id, claim_id, executor_id)
     else:
         dispatch = {"dry_run": True}
     return {
@@ -208,13 +271,20 @@ def claim_task(run_dir_value: str | Path, task_id: str, agent_id: str, lease_sec
         "claim_path": str(claim_path),
         "task_id": task_id,
         "claimer_agent": agent_id,
+        "executor_id": executor_id,
         "lease_expires_at": expires,
         "dispatch": dispatch,
         "dry_run": dry_run,
     }
 
 
-def _dispatch_claimed_task(run_dir: Path, task_id: str, agent_id: str, claim_id: str) -> dict[str, object]:
+def _dispatch_claimed_task(
+    run_dir: Path,
+    task_id: str,
+    agent_id: str,
+    claim_id: str,
+    executor_id: str | None = None,
+) -> dict[str, object]:
     """Emit the claimant-owned dispatch event and wake exactly that claimant."""
 
     task_path = run_dir / "tasks" / f"{task_id}.md"
@@ -235,7 +305,7 @@ def _dispatch_claimed_task(run_dir: Path, task_id: str, agent_id: str, claim_id:
         raise RuntimeError(emitted.stderr.strip() or emitted.stdout.strip())
     from wake_agent import wake_agent
 
-    return wake_agent(run_dir, task_id, agent_id, dry_run=False)
+    return wake_agent(run_dir, task_id, agent_id, executor_id=executor_id, dry_run=False)
 
 
 def claim_thread(
@@ -248,6 +318,7 @@ def claim_thread(
     lease_seconds: int,
     session_id: str | None = None,
     *,
+    executor_id: str | None = None,
     dry_run: bool = False,
 ) -> dict[str, object]:
     context = _load_context(run_dir_value)
@@ -255,6 +326,7 @@ def claim_thread(
         raise ValueError("thread claims require self_service dispatch under non-strict governance")
     if agent_id not in context["agents"]:
         raise ValueError(f"agent is not registered: {agent_id}")
+    binding = _executor_binding(context, task_id, agent_id, executor_id)
     if "thread_claim" not in _capabilities(context["agents"][agent_id]):
         raise ValueError("agent lacks thread_claim capability")
     task_pair = context["tasks"].get(task_id)
@@ -263,16 +335,22 @@ def claim_thread(
     task = task_pair[1]
     if effective_owner(context["run_dir"], task) != agent_id:
         raise ValueError("thread claimant must own the task; claim the task first")
+    now = _now()
+    task_claim = active_task_claim(context["run_dir"], task_id, now=now)
+    if executor_id is None and task_claim and task_claim.get("executor_id") not in {None, "", "null"}:
+        executor_id = task_claim["executor_id"]
+        binding = _executor_binding(context, task_id, agent_id, executor_id)
     workspace_path = Path(workspace).expanduser().resolve()
-    if workspace_path != context["project_root"]:
-        raise ValueError("thread workspace must equal the project workspace")
+    expected_workspace = Path(binding["workspace"]).expanduser().resolve() if binding else context["project_root"]
+    if workspace_path != expected_workspace:
+        raise ValueError("thread workspace must equal the executor workspace")
     if platform not in {"codex", "hermes", "document"}:
         raise ValueError("unsupported thread platform")
-    if platform in {"codex", "hermes"} and not session_id:
+    effective_session_id = session_id or (binding.get("session_id") if binding else None)
+    if platform in {"codex", "hermes"} and not effective_session_id:
         raise ValueError("native thread claims require a real session_id")
     if lease_seconds < 1:
         raise ValueError("lease_seconds must be at least 1")
-    now = _now()
     claim_dir = context["run_dir"] / "claims" / "threads"
     if not dry_run:
         claim_dir.mkdir(parents=True, exist_ok=True)
@@ -288,9 +366,8 @@ def claim_thread(
             "blocked_by": "active_thread_claim",
             "next_action": "wait_for_thread_release_or_timeout_recovery",
         }
-    claim_id = _claim_id("THREAD", context["manifest"]["run_id"], thread_id, agent_id)
+    claim_id = _claim_id("THREAD", context["manifest"]["run_id"], thread_id, agent_id, executor_id)
     claim_path = claim_dir / f"{claim_id}.yaml"
-    task_claim = active_task_claim(context["run_dir"], task_id, now=now)
     acquired = now.isoformat(timespec="seconds")
     expires = (now + timedelta(seconds=lease_seconds)).isoformat(timespec="seconds")
     content = "\n".join(
@@ -304,8 +381,9 @@ def claim_thread(
             f"task_claim_id: {quote(task_claim.get('claim_id', 'null') if task_claim else 'null')}",
             f"thread_id: {quote(thread_id)}",
             f"claimer_agent: {quote(agent_id)}",
+            f"executor_id: {quote(executor_id) if executor_id else 'null'}",
             f"platform: {quote(platform)}",
-            f"session_id: {quote(session_id) if session_id else 'null'}",
+            f"session_id: {quote(effective_session_id) if effective_session_id else 'null'}",
             f"workspace: {quote(str(workspace_path))}",
             f"lease_acquired_at: {quote(acquired)}",
             f"lease_expires_at: {quote(expires)}",
@@ -338,6 +416,7 @@ def claim_thread(
         "claim_path": str(claim_path),
         "thread_id": thread_id,
         "claimer_agent": agent_id,
+        "executor_id": executor_id,
         "lease_expires_at": expires,
         "dry_run": dry_run,
     }
@@ -402,6 +481,16 @@ def release_claim(
                 raise ValueError(f"claim release already exists: {release_path}")
             release_dir.mkdir(parents=True, exist_ok=True)
             atomic_write(release_path, content)
+    executor_release = None
+    executor_ref = values.get("executor_id")
+    if executor_ref not in {None, "", "null"}:
+        executor_release = release_executor(
+            run_dir,
+            executor_ref,
+            agent_id,
+            f"claim release: {reason.strip()}",
+            dry_run=dry_run,
+        )
     return {
         "ready": True,
         "claim_id": values.get("claim_id", claim_path.stem),
@@ -409,6 +498,7 @@ def release_claim(
         "release_path": str(release_path),
         "released_by": agent_id,
         "reason": reason.strip(),
+        "executor_release": executor_release,
         "dry_run": dry_run,
     }
 
@@ -419,6 +509,7 @@ def main() -> int:
     task = subparsers.add_parser("claim-task")
     task.add_argument("--run-dir", required=True); task.add_argument("--task-id", required=True)
     task.add_argument("--agent-id", required=True); task.add_argument("--lease-seconds", type=int, default=600)
+    task.add_argument("--executor-id")
     task.add_argument("--dry-run", action="store_true")
     thread = subparsers.add_parser("claim-thread")
     thread.add_argument("--run-dir", required=True); thread.add_argument("--task-id", required=True)
@@ -426,6 +517,7 @@ def main() -> int:
     thread.add_argument("--platform", required=True); thread.add_argument("--session-id")
     thread.add_argument("--workspace", required=True)
     thread.add_argument("--lease-seconds", type=int, default=600); thread.add_argument("--dry-run", action="store_true")
+    thread.add_argument("--executor-id")
     release_task = subparsers.add_parser("release-task")
     release_task.add_argument("--run-dir", required=True); release_task.add_argument("--claim-ref", required=True)
     release_task.add_argument("--agent-id", required=True); release_task.add_argument("--reason", required=True)
@@ -436,9 +528,9 @@ def main() -> int:
     release_thread.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     if args.command == "claim-task":
-        result = claim_task(args.run_dir, args.task_id, args.agent_id, args.lease_seconds, dry_run=args.dry_run)
+        result = claim_task(args.run_dir, args.task_id, args.agent_id, args.lease_seconds, executor_id=args.executor_id, dry_run=args.dry_run)
     elif args.command == "claim-thread":
-        result = claim_thread(args.run_dir, args.task_id, args.agent_id, args.thread_id, args.platform, args.workspace, args.lease_seconds, session_id=args.session_id, dry_run=args.dry_run)
+        result = claim_thread(args.run_dir, args.task_id, args.agent_id, args.thread_id, args.platform, args.workspace, args.lease_seconds, session_id=args.session_id, executor_id=args.executor_id, dry_run=args.dry_run)
     elif args.command == "release-task":
         result = release_claim(args.run_dir, args.claim_ref, args.agent_id, args.reason, "task_claim", dry_run=args.dry_run)
     else:

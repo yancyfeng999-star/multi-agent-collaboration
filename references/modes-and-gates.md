@@ -13,14 +13,16 @@
 
 | 字段 | 值 | 规则 |
 | --- | --- | --- |
+| `execution_profile` | `emergency` | Light/Standard/Strict 均可；默认任务级 Preflight、`capability_pool` 和最小 incident/scope/acceptance/rollback 输入，不降低高风险门禁 |
 | `execution_profile` | `fast` | Light/Standard；一次 dispatch preflight + 一次 completion preflight；Light 可不设 Reviewer/QA，Standard 仍需一次合并质量交接 |
 | `execution_profile` | `normal` | Standard/Strict 默认；保留完整质量、版本和收口链 |
 | `dispatch_policy` | `central` | 只有 Coordinator 可写 TASK_READY/TASK_DISPATCHED |
 | `dispatch_policy` | `hybrid` | 授权工作 Agent 可在父任务范围内发布；任务 claim 可用 |
 | `dispatch_policy` | `self_service` | 允许父任务内发布、任务池 claim 和 thread claim |
 
-`fast` 不改变 owned/forbidden paths、secret 禁区、不可变文档、真实验证或高风险人工门禁；
-Strict 与 `fast` 组合直接拒绝。
+`emergency` 和 `fast` 都不改变 owned/forbidden paths、secret 禁区、不可变文档、真实验证或高风险人工门禁。Emergency 只把普通缺口缩小为任务/资源步骤作用域；Strict 与 `fast` 组合直接拒绝，但允许 Strict Emergency。
+
+Light/Standard Emergency 的低风险、本地可逆任务可以在没有完整 Run 级 `scope_freeze_ref` 时先开始；任务自身的路径、能力、资源和验收仍必须可验证。Strict Emergency 仍要求 Run 级 scope freeze 及其余高风险证据。
 
 ### 快车道门禁
 
@@ -52,6 +54,10 @@ commit、handoff 和候选版本缺口。两个脚本只读，不写事件、不
 `light + fast` 可以省略下游质量交接，但不能省略任务、事件、result、hash、范围冻结和真实
 完成检查。`standard + fast` 仍必须完成独立于 Owner 的一次 Reviewer/QA 合并质量交接，只是
 通过一次性 preflight 减少重复等待。
+
+Standard Emergency 可以把独立 Review 与 QA 合并为一个 Quality 能力；任务门禁缺口进入
+`blocked_tasks`，不阻塞无关 ready task。涉及生产、数据库、支付、权限、密钥、真实数据或
+发布的步骤仍按 resource/risk/release lane 停止并等待人工授权。
 
 ## 2. Standard
 
@@ -158,6 +164,15 @@ Standard 可以使用 `hybrid`/`self_service` 缩短派发等待，但工作 Age
 
 Coordinator 仍独占 Strict/central 派发、全局状态序号、人工许可、重试/dead-letter、完成和
 发布事件。
+
+### 短期执行实例
+
+`principal_agent_id` 负责稳定身份和权限，`executor_id` 负责一次 task attempt。调度器按
+`role_ref`、`required_capabilities`、runtime、workspace policy 和 Run 容量分配实例；同一
+principal 可以在不同、无冲突任务上并行。两个写实例不能共享 worktree；只读实例可以共享。
+绑定文件位于 Run `executors/`，只追加 `executors/releases/`，不改变长期 TEAM，也不计入
+页面的 Agent 数量。没有 `executor_scale_authorized` 时，Native 新实例必须返回可执行缺口，
+不能静默扩容。
 
 ## 6. 发布门禁
 

@@ -3,6 +3,37 @@
 本文件记录 Skill 协议和用户可见行为变化。项目业务版本由各 Run 的版本合同治理，不在
 这里记录。
 
+## Skill 2.1.0 — 2026-08-10
+
+### Emergency 时效与任务级治理
+
+- 新增 Direct Hotfix 与 Coordinated Emergency 路由：单一低风险紧急 Bug 不创建 Run；多个
+  独立任务才启用任务级 Preflight。
+- Emergency 的普通缺口进入 `blocked_tasks`，容量/冲突等待进入 `deferred_tasks` 或
+  `resource_waits`，只有真实 Run 级故障才进入 `run_level_blockers`；旧 Run 缺字段仍按旧的
+  run-scoped/fixed 默认行为读取。
+- 冲突模型统一覆盖 dependency、owned path、logical resource、workspace、environment 和
+  release lane；无冲突的同类型任务不再因同一角色忙碌而排队。
+
+### Run 内短期执行实例
+
+- 增加 `executor_pool.py`、Executor Binding Schema `1.0` 和 `executors/` Run-local 目录；
+  `principal_agent_id` 保持稳定权限主体，`executor_id` 只绑定一个 task attempt。
+- 同一 principal 可以在独立 worktree 上拥有多个短期 executor；同一任务、写 worktree、
+  重叠资源和发布通道仍严格串行。Native 新实例需要 `executor_scale_authorized`，释放采用
+  不可变 `executors/releases/` 记录。
+- `executor_id` 贯穿 task/thread claim、wake operation、Document invocation package 和
+  结构验证；工作 Agent 自助发布固定子任务时也使用相同 pool 和冲突校验。
+
+### 兼容与版本
+
+- Protocol v3 保持不变；Preflight Result Schema 升为 `1.1`；Governance Storage Schema 升为
+  `1.1`，兼容读取 `1.0` binding/Run。
+- 迁移工具为旧 Run 增补 `preflight_scope=run`、`executor_policy=fixed` 等可选字段，支持
+  dry-run/apply/rollback，不自动改变旧 Run 行为。
+- Skill 版本升级不修改任何目标项目业务版本；版本合同和发布通道仍由 Coordinator/现有
+  Release 能力集中治理，不新增 Version Agent 或长期角色。
+
 ## Skill 2.0.0 — 2026-08-10
 
 ### 开发治理侧车

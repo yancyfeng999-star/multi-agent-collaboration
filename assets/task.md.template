@@ -5,6 +5,8 @@ task_id: "TASK-001"
 title: "<task-title>"
 status: "draft"
 owner_agent: "<agent-id>"
+role_ref: "owner"
+required_capabilities: []
 assignment_mode: "fixed"
 eligible_agents: []
 published_by: "coordinator"
@@ -19,6 +21,11 @@ version_contract_sha256: "<sha256>"
 dependencies: []
 owned_paths: []
 forbidden_paths: []
+logical_resources: []
+environment_resources: []
+workspace: null
+workspace_policy: "isolated_writer"
+release_lane: "none"
 resource_steps: []
 risk_flags: []
 human_gates: []

@@ -25,6 +25,7 @@
     "task_id": {"type": "string", "pattern": "^TASK-[A-Za-z0-9][A-Za-z0-9._-]*$"},
     "attempt_id": {"type": "string", "pattern": "^ATTEMPT-[A-Za-z0-9][A-Za-z0-9._-]*$"},
     "agent_id": {"$ref": "#/definitions/opaqueId"},
+    "executor_id": {"anyOf": [{"type": "string", "pattern": "^EXEC-[A-Za-z0-9][A-Za-z0-9._-]*$"}, {"type": "null"}]},
     "session_id": {"anyOf": [{"$ref": "#/definitions/sessionId"}, {"type": "null"}]},
     "parent_agent_id": {"anyOf": [{"$ref": "#/definitions/opaqueId"}, {"type": "null"}]},
     "runtime_profile": {"$ref": "#/definitions/runtimeProfile"},

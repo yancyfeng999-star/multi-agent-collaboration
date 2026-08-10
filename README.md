@@ -7,21 +7,23 @@
 | 中文名称 | 多智能体协同 |
 | English Name | Multi-Agent Collaboration |
 | Skill ID | `multi-agent-collaboration` |
-| Skill Version | `2.0.0` |
+| Skill Version | `2.1.0` |
 | Protocol Version | `3` |
-| Governance Storage Schema | `1.0` |
+| Governance Storage Schema | `1.1`（兼容读取 `1.0`） |
 | GitHub | [yancyfeng999-star/multi-agent-collaboration](https://github.com/yancyfeng999-star/multi-agent-collaboration) |
 | License | [MIT](LICENSE) |
 | 调用方式 | `$multi-agent-collaboration` |
 
-Multi-Agent Collaboration 是面向通用项目的 Agent 角色目录、人工启动与按需多智能体治理 Skill。普通任务默认使用 Direct；只在需要多 Agent、交接、独立质量、跨会话恢复或正式审计时启用 Coordinated。
+Multi-Agent Collaboration 是面向通用项目的 Agent 角色目录、人工启动与按需多智能体治理 Skill。普通任务默认使用 Direct；单一紧急 Bug 走 Direct Hotfix；只有多个真正独立工作单元、受管交接、独立质量、跨会话恢复或正式审计才启用 Coordinated。Emergency 只减少等待和资料范围，不降低高风险门禁。
 
 ## 两条工作路径
 
 | 路径 | 适用场景 | 写入治理资料 |
 | --- | --- | --- |
 | **Direct** | 单一 Agent 可完成的网站更新、修复、调研、文档或普通开发 | 否，默认不创建治理资料 |
+| **Direct Hotfix** | 单一、低风险、可逆的紧急修复 | 否；部署/生产动作前单独请求授权 |
 | **Coordinated** | 多 Agent 并行、受管交接、Review/QA、跨会话恢复、Strict 门禁 | 是，仅保存在项目外 Governance Home |
+| **Coordinated Emergency** | 多个独立紧急任务，需要任务级门禁和同角色短期实例 | 是，任务级 Preflight + Run-local executor |
 
 网站构建、启动、测试、部署和线上运行对治理资料零依赖。本 Skill 不自动创建或修改目标项目的 `AGENTS.md`，也不把 Agent、Run、handoff、candidate index 或 checkpoint 复制到网站项目。
 
@@ -93,19 +95,40 @@ python3 scripts/init_project_agents.py \
   --user-confirmed
 ```
 
-## 快车道与受控自助
+多个独立紧急任务可使用 Coordinated Emergency；显式授权 Native 扩容后，同角色任务才会建立短期执行实例：
 
-Light/Standard 可使用 `execution_profile=fast`，把重复门禁汇总为一次 preflight 和一次 completion preflight；Strict 禁止 fast。
+```bash
+python3 scripts/init_run.py \
+  --coordination-mode coordinated --project-root "<project-root>" \
+  --governance-root "<governance-home>" --project-id "<project-id>" \
+  --governance standard --execution-profile emergency --dispatch-policy self_service \
+  --executor-policy capability_pool --executor-scale-authorized \
+  --transport hybrid --objective "<urgent objective>" \
+  --versioning-mode not_applicable --versioning-reason "<reason>" --user-confirmed
+```
+
+任务应声明 `role_ref`、`required_capabilities`、`owned_paths`、`logical_resources`、
+`environment_resources`、`workspace`、`workspace_policy` 和 `release_lane`。TASK-A/TASK-B
+路径和 worktree 均独立时并行；共享 package lock、数据库 schema、版本源或 release lane 时串行。
+
+## 紧急快车道与受控自助
+
+`execution_profile=emergency` 默认使用任务级 Preflight 和 capability pool：一个任务的门禁缺口进入 `blocked_tasks`，无关任务继续；`execution_profile=fast` 仍适用于 Light/Standard，Strict 禁止 fast，但 Strict 可以使用 emergency。两者都不绕过 owned paths、Secret、Review/QA、生产、数据或发布授权。
+
+Light/Standard 的低风险、本地可逆 Emergency 不必先建立完整 Run 级 scope freeze；任务仍须满足
+自身路径、能力、资源、验收和真实验证要求。Strict Emergency 继续要求 scope freeze 与完整高风险门禁。
 
 `hybrid` 或 `self_service` 允许工作 Agent 在已冻结父任务范围内发布子任务，不必每次唤醒主架构 Agent。任务发布、任务 claim、thread claim 和高冲突资源都用独立锁串行，不能覆盖未过期持有者，不能扩大路径、权限、版本或发布资格。
+
+同一个稳定 `principal_agent_id` 可以在不同任务上获得不同 `executor_id`；无冲突且使用独立 worktree 的同类型任务可以同一 tick 并行。executor 只属于当前 Run，不增加长期 Agent，不展示在 `agents.html`；同一 task、写 worktree、logical/environment resource 和 release lane 仍严格串行。Native 新实例需要一次 `executor_scale_authorized=true` 授权。
 
 ## 版本边界
 
 | 对象 | 当前值/权威源 | 变化条件 |
 | --- | --- | --- |
-| Skill 版本 | `2.0.0` / [VERSION](VERSION) | Skill 用户可见行为、文档、脚本、Schema 或默认值变化 |
+| Skill 版本 | `2.1.0` / [VERSION](VERSION) | Skill 用户可见行为、文档、脚本、Schema 或默认值变化 |
 | Protocol 版本 | `3` / `scripts/protocol_lib.py` | 任务、事件、状态机、证据或恢复语义不兼容变化 |
-| Storage Schema | `1.0` / binding schema | Governance Home 布局与绑定契约变化 |
+| Storage Schema | `1.1` / binding schema（兼容 `1.0`） | Governance Home 布局与绑定契约变化 |
 | 项目业务版本 | 目标项目唯一版本权威源 | 项目交付范围、兼容性或发布内容变化 |
 
 Skill 升级不会自动修改项目业务版本。版本治理集中由 Coordinator 承担，不单独增加 Version Agent。
@@ -137,6 +160,6 @@ python3 scripts/migrate_governance_storage.py \
 
 ## English Summary
 
-Multi-Agent Collaboration defaults to **Direct**: one Agent completes a clear task and creates no governance records. Use **Coordinated** only when multiple Agents, governed handoffs, independent quality gates, recovery, or auditability are truly required.
+Multi-Agent Collaboration defaults to **Direct**: one Agent completes a clear task and creates no governance records. A single low-risk urgent bug follows **Direct Hotfix**. Use **Coordinated Emergency** only when multiple independent urgent tasks need task-scoped gates or short-lived same-role executors; use full **Coordinated** for governed handoffs, independent quality gates, recovery, or auditability.
 
-All coordinated artifacts live in an external **Governance Home**. The target project contains only product source, tests, build configuration, its authoritative version source, and required deliverables. The Skill never creates or edits the target project's `AGENTS.md`. Website build, test, deployment, and runtime remain fully independent of Agent roles, Runs, handoffs, checkpoints, and candidate views.
+All coordinated artifacts live in an external **Governance Home**. The target project contains only product source, tests, build configuration, its authoritative version source, and required deliverables. The Skill never creates or edits the target project's `AGENTS.md`. Website build, test, deployment, and runtime remain fully independent of Agent roles, Runs, handoffs, checkpoints, candidate views, and Run-local executor bindings. A stable principal may own multiple non-conflicting executor instances, but executor instances never become long-lived Agent roles.

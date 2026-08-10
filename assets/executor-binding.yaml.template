@@ -1,0 +1,15 @@
+schema_version: "1.0"
+executor_id: "EXEC-<principal>-<task>-<attempt>"
+principal_agent_id: "<stable-agent-id>"
+role_ref: "<role-ref>"
+task_id: "<task-id>"
+attempt_id: "<attempt-id>"
+required_capabilities: []
+runtime: "codex_thread"
+session_id: null
+thread_id: null
+workspace: "<absolute-worktree>"
+worktree_policy: "isolated_writer"
+lease_acquired_at: "<iso-8601-with-timezone>"
+lease_expires_at: "<iso-8601-with-timezone>"
+status: "active"

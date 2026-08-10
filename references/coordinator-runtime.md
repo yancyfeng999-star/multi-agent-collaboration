@@ -2,9 +2,9 @@
 
 `coordinator.py` is a bounded protocol-v3 scheduler. One invocation performs one tick; it never starts an implicit polling loop.
 
-Run manifest additionally records `execution_profile` (`fast`/`normal`) and `dispatch_policy`
-(`central`/`hybrid`/`self_service`). The profile reduces waiting strategy only; it never grants
-additional paths or release authority.
+Run manifest additionally records `execution_profile` (`emergency`/`fast`/`normal`), `preflight_scope`,
+`executor_policy`, `executor_scale_authorized` and `dispatch_policy` (`central`/`hybrid`/`self_service`).
+The profile reduces waiting strategy only; it never grants additional paths or release authority.
 
 ## One tick
 
@@ -13,17 +13,28 @@ python3 scripts/coordinator.py --run-dir '<governance-root>/projects/<project-ke
 python3 scripts/coordinator.py --run-dir '<governance-root>/projects/<project-key>/runs/RUN-ID' --dry-run
 ```
 
-The tick reads the run-local manifest, registry, frozen tasks, immutable events, and active locks. It replays task state, selects only tasks whose dependencies are completed, subtracts active tasks from `max_parallel`, and rejects overlapping `owned_paths` or active path locks. Selection is deterministic by manifest task order.
+The tick reads the run-local manifest, registry, frozen tasks, immutable events, active claims and locks.
+It replays task state, selects only tasks whose dependencies are completed, subtracts active tasks from
+`max_parallel`, and evaluates dependency/path/logical/workspace/environment/release conflict
+fingerprints. Selection is deterministic by manifest task order, but a blocked task does not consume a
+slot for unrelated tasks.
+
+For `execution_profile=emergency`, a non-central Run uses task-scoped Preflight. Light/Standard
+low-risk local work does not require a complete Run-level scope freeze; Strict Emergency still does.
+A missing gate,
+scope, capability or executor is returned in `blocked_tasks`; a capacity or resource collision is
+returned in `deferred_tasks`/`resource_waits`; only malformed Run-wide state appears in
+`run_level_blockers`. Legacy Runs without `preflight_scope` retain run-scoped behavior.
 
 For new work it can emit `TASK_READY` and `TASK_DISPATCHED` through the existing safe `emit_event.py`, then calls `wake_agent.py`. `--dry-run` writes neither events, operations, nor invocation packages. `--no-emit-events` is preview-only and must be combined with `--dry-run`; real delivery without protocol events is rejected.
 
 The coordinator does not fabricate Review, QA, retry, dead-letter, or release evidence. Those transitions remain evidence-driven Protocol v3 events. Timeout results are actionable recommendations, not claims that recovery already happened.
 
-For non-central Runs with a frozen scope, the tick runs the read-only preflight gate first. A blocked
-preflight returns the full report and dispatches nothing. A claimable task is made `ready` for the
-pool and is not woken by Coordinator; an eligible Agent must acquire the task claim, emit the
-claimant-owned `TASK_DISPATCHED`, and wake itself. This keeps the ready wave bounded without making
-Coordinator a bottleneck.
+For non-central Runs with a frozen scope, the tick runs the read-only preflight gate first. In task
+scope, only the affected task is blocked. A claimable task is made `ready` for the pool and is not
+woken by Coordinator; an eligible Agent must acquire the task claim, emit the claimant-owned
+`TASK_DISPATCHED`, and wake itself. This keeps the ready wave bounded without making Coordinator a
+bottleneck.
 
 ### Self-service publication
 
@@ -37,6 +48,16 @@ Task claims and thread claims use separate locks and immutable lease records. A 
 the current holder and an actionable conflict; it never overwrites the first claim. `wake_agent.py`,
 `manage_run.py write-ack/write-lease/write-result`, and event validation resolve a pooled task to
 its current claimant so the rest of the lifecycle remains serial and auditable.
+
+### Capability pool and worktree safety
+
+`principal_agent_id` is the stable permission identity; `executor_id` is one task attempt. A single
+principal may receive multiple executor bindings when tasks are independent and the Run has capacity.
+Bindings are written to `executors/EXEC-*.yaml`, and release/expiry facts are appended under
+`executors/releases/`. Native runtimes require `executor_scale_authorized=true` before a new binding
+is created. `isolated_writer` bindings cannot share a worktree; `shared_read_only` may share one. The
+same checks run for Coordinator dispatch and self-service claim/publication, so a worker does not
+bypass conflict serialization by waking its child directly.
 
 ## Wake operations and adapters
 

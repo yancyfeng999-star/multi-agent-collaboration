@@ -8,6 +8,7 @@
 | [interview-and-planning.md](interview-and-planning.md) | 每次新 Run | 访谈、只读扫描、最小智能体编制、DAG 和用户确认 |
 | [document-protocol.md](document-protocol.md) | 初始化或恢复 Run | 协议 v3 目录、状态机、事件、不可变证据和恢复 |
 | [modes-and-gates.md](modes-and-gates.md) | 选择治理模式或快车道 | Light、Standard、Strict、execution profile、dispatch policy、claim 和发布门禁 |
+| [coordinator-runtime.md](coordinator-runtime.md) | Emergency 或有界调度 tick | 任务级 Preflight、冲突指纹、短期 executor、容量与串行集成 |
 | [version-governance.md](version-governance.md) | 判断项目交付版本 | 集中式版本合同、Release Train、RC 和版本重评 |
 | [adapters.md](adapters.md) | 选择 transport | Codex 原生、文档总线和 hybrid 双写 |
 | [codex-native-protocol.md](codex-native-protocol.md) | 使用 Codex 任务或子代理 | 原生工具发现、消息、等待、handoff 和恢复 |
@@ -18,7 +19,6 @@
 | [run-memory-bridge.md](run-memory-bridge.md) | Run 完成后沉淀长期记忆 | Run→Agent 只读桥接、哈希、幂等与边界 |
 | [project-finalization.md](project-finalization.md) | 阶段 checkpoint 或项目收口 | 项目级 checkpoint、最终报告与审计清单 |
 | [agent-lifecycle.md](agent-lifecycle.md) | 长期角色变化或存储升级 | 添加、暂停、退役、修复、迁移和回滚 |
-| [coordinator-runtime.md](coordinator-runtime.md) | 自动推进 ready wave | 有界 tick、唤醒适配、超时建议与安全回退 |
 | [runtime-metadata.md](runtime-metadata.md) | 绑定会话或记录运行资料 | actual/declared 证据边界、unknown/conflict、usage、Secret 与收口顺序 |
 
 维护约定：

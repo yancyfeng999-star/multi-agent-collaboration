@@ -46,6 +46,9 @@ reducer 生成。任务文件冻结后 `status` 永远为 `draft`，不得用任
         ├── claims/
         │   ├── tasks/
         │   └── threads/
+        ├── executors/
+        │   ├── EXEC-*.yaml
+        │   └── releases/
         ├── config/
         ├── dead-letter/
         ├── delegations/
@@ -73,6 +76,7 @@ reducer 生成。任务文件冻结后 `status` 永远为 `draft`，不得用任
 | `outbox/<agent-id>/` | 对应 Agent；Codex 结果可由 Coordinator 代理 |
 | `events/`、`locks/`、`delegations/`、`native/` | Coordinator |
 | `claims/tasks/`、`claims/threads/` | 具备相应 claim 能力的 Agent，在独立 claim 锁内追加不可变 claim/release 记录 |
+| `executors/`、`executors/releases/` | Executor pool，在独立 executor 锁内追加短期 binding/release；不写长期 TEAM |
 
 原始 claim 文件不得覆盖。持有者主动让出时，使用 `agent_claim.py release-task` 或
 `release-thread` 在对应 `releases/` 子目录追加 release 记录；release 只改变后续 operational
@@ -101,7 +105,8 @@ dispatch/release 使用的配置证据和底层验证产物都不能被静默替
 - 任务必须继承 Owner 的所有 forbidden paths。
 - 子代理权限必须是父智能体权限的真子集或相同范围，不能扩大。
 
-存在 owned path 重叠的任务必须通过 DAG 串行；没有依赖关系时验证失败。`assignment_mode:
+存在 owned path 重叠的任务必须通过 DAG 依赖或显式 `parent_task_id` 关系串行；没有任何
+序列化关系时验证失败。`assignment_mode:
 claimable` 的任务使用 `owner_agent: pool` 和 `eligible_agents`，owned paths 必须同时处于
 所有 eligible Agent 的 writable scope；抢占后 effective Owner 才解析为 claimant。
 
@@ -195,6 +200,9 @@ Reviewer 发给 QA；进入 Release 的任务必须声明已注册的 `release_a
 - 每次执行尝试使用新的 `attempt_id`；同一尝试内的传输重投继续复用原 idempotency key。
   任务内容不变时 task id 不变，只有 ACK、lease 和 result 产生新的尝试文件。
 - ACK 必须先落盘并作为 `ACK` payload；没有当前尝试的 ACK 不能建立 lease 或提交结果。
+- 在 capability pool 中，ACK、lease、result 可带 `executor_id`；验证器会检查它与 task、
+  principal Agent 和 attempt 的 immutable binding 一致。旧回执缺少该字段时按 legacy principal
+  兼容读取。
 - lease 由 `manage_run.py write-lease` 创建，且 `attempt_id` 必须匹配当前 ACK；获取和到期
   时间必须有时区且顺序有效。
   running 任务没有有效未过期 lease 时验证失败并进入恢复。
@@ -217,13 +225,15 @@ manifest 的任务索引必须与 `tasks/` 完全一致。依赖必须存在、�
 `completed` 后才能 `TASK_READY`。
 
 `max_parallel` 限制 dispatched、acknowledged、running、reviewing 和 qa_running 的并发
-数量。锁通过 `manage_run.py lock` 管理：
+数量。Emergency 的 `executor_policy=capability_pool` 允许同一 principal 在额度内绑定多个
+executor，但不按角色设置隐含单实例队列。锁通过 `manage_run.py lock` 管理：
 
 - path 资源必须位于任务 owned paths。
 - logical 资源使用 `logical:<name>`。
 - Owner 必须等于任务 Owner。
 - 获取和到期时间必须有效。
 - 父子路径锁视为冲突。
+- logical/environment/workspace/release lane 冲突也必须串行；不同 worktree 的同类型任务可以并行。
 - 终止任务不能保留活动锁。
 - release 前必须释放全部活动锁；历史锁移动到 `archive/locks/`。
 
