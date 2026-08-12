@@ -6,9 +6,11 @@
 ## 运行完整测试
 
 ```bash
-PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p 'test_*.py'
 python3 -m compileall -q scripts tests
+
+# 已安装 pytest 时可额外用它复跑同一套 unittest 用例
+PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q
 ```
 
 ## 覆盖范围
@@ -24,19 +26,24 @@ python3 -m compileall -q scripts tests
 | 迁移与修复 | dry-run、plan hash、幂等、备份、quarantine、故障注入和回滚 |
 | 适配器 | document fallback、Hermes/Codex 显式 bridge、会话/workspace 边界和不误报唤醒 |
 | 用户入口 | `agents.html` 角色卡、最小启动表单、手动复制边界和无运行状态约束 |
+| 1.4.x 快车道与自助协同 | execution/dispatch policy、scope/preflight、工作 Agent 子任务发布、任务/线程串行 claim、超时恢复和候选索引 |
+| 2.0.0 外置开发治理 | Direct 零写入、Coordinated 外置绑定、Agent/Run 侧车存储、旧资料事务迁移、项目零运行依赖与旧目录 Git 门禁 |
+| 2.1.0 Emergency 并行执行 | Direct Hotfix/Coordinated Emergency 路由、任务级 Preflight、同角色 executor pool、冲突指纹、worktree policy、executor release 和 Storage Schema 1.1 兼容 |
 
 ## 发布门禁
 
 发布前必须运行：
 
-1. 两轮完整 `pytest`；
-2. `unittest discover`；
+1. 一轮完整 `unittest discover`（权威、零第三方依赖）；
+2. 环境已安装 pytest 时，额外运行两轮完整 `pytest`；未安装时如实记录，不临时下载依赖；
 3. `compileall`；
 4. 所有顶层 `scripts/*.py --help`；
 5. 所有 `assets/schemas/*.json` 的 stdlib JSON 解析；
 6. Markdown 本地链接检查；
 7. `git diff --check`。
 
-当前 v1.3.0 本地回归为：`python -m unittest discover -s tests -p 'test_*.py'` 的 202 tests OK，
-`compileall`、顶层 CLI help、8/8 JSON Schema、HTML/JavaScript 静态检查和本地链接检查通过。
+当前 v2.1.0 基线必须同时覆盖 Protocol v3、Emergency 任务级调度、短期 executor 和外置 Governance Home。
+本次实现用 `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p 'test_*.py' -q`
+验证的真实测试数以最终运行输出为准；同时要求顶层 CLI help、JSON Schema、
+HTML/JavaScript 静态检查、Markdown 本地链接和 `git diff --check` 通过。
 这些数字是发布证据，不是未来版本的固定断言；测试变化后应以最新真实命令输出更新。

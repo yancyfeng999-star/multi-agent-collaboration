@@ -8,6 +8,8 @@ from unittest.mock import patch
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from tests.governance_test_support import governance_project
+
 SKILL = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SKILL / "scripts"))
 
@@ -21,7 +23,7 @@ class CoordinatorRuntimeTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name) / "project"
         self.root.mkdir()
-        self.bus = self.root / ".multi-agent-collaboration"
+        self.bus = governance_project(self.temp.name, self.root)
         self.run_dir = self.bus / "runs" / "RUN-1"
         for name in ("tasks", "events", "locks", "operations", "inbox/a", "inbox/b", "outbox/a", "outbox/b"):
             (self.run_dir / name).mkdir(parents=True, exist_ok=True)
@@ -101,6 +103,25 @@ class CoordinatorRuntimeTests(unittest.TestCase):
         report = tick(self.run_dir, dry_run=True, emit_events=False)
         self.assertEqual([item["task_id"] for item in report["dispatches"]], ["T1"])
         self.assertTrue(any(item["task_id"] == "T2" and "lock_conflict" in item["reason"] for item in report["blocked_conflicts"]))
+
+    def test_logical_resource_conflict_blocks_only_the_conflicting_task(self) -> None:
+        for task_id in ("T1", "T2"):
+            path = self.run_dir / "tasks" / f"{task_id}.md"
+            path.write_text(
+                path.read_text(encoding="utf-8").replace(
+                    'forbidden_paths: []',
+                    'forbidden_paths: []\nlogical_resources: ["logical:shared-schema"]',
+                ),
+                encoding="utf-8",
+            )
+
+        report = tick(self.run_dir, dry_run=True, emit_events=False)
+
+        self.assertEqual([item["task_id"] for item in report["dispatches"]], ["T1"])
+        self.assertTrue(any(
+            item["task_id"] == "T2" and item["reason"] == "logical_resource_conflict:T1"
+            for item in report["blocked_conflicts"]
+        ))
 
     def test_unsupported_codex_falls_back_to_real_document_package(self) -> None:
         self._agents("codex_thread", "document")

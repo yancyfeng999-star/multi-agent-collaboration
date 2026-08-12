@@ -1,5 +1,7 @@
 # 通用文档通信协议 v3
 
+本协议只用于 Coordinated。Direct 默认不创建 Run 或任何协议文件。Coordinated Run 位于项目外 Governance Home，目标项目的构建与运行不依赖该目录。
+
 ## 1. 事实来源
 
 优先级：
@@ -20,7 +22,8 @@ reducer 生成。任务文件冻结后 `status` 永远为 `draft`，不得用任
 ## 2. Run 隔离和目录
 
 ```text
-.multi-agent-collaboration/
+<governance-home>/projects/<project-key>/
+├── project-binding.yaml
 ├── protocol.yaml
 ├── project.yaml
 ├── current-run
@@ -39,6 +42,14 @@ reducer 生成。任务文件冻结后 `status` 永远为 `draft`，不得用任
         ├── artifacts/
         ├── evidence/
         ├── locks/
+        ├── operations/        # Native/Document wake operation facts
+        ├── claims/
+        │   ├── tasks/
+        │   └── threads/
+        ├── executors/
+        │   ├── EXEC-*.yaml
+        │   └── releases/
+        ├── config/
         ├── dead-letter/
         ├── delegations/
         ├── native/
@@ -50,7 +61,7 @@ reducer 生成。任务文件冻结后 `status` 永远为 `draft`，不得用任
         └── archive/
 ```
 
-`protocol.yaml` 和 `project.yaml` 是项目级固定身份。Agent Registry 必须位于 Run 内，不能
+`project-binding.yaml` 将治理项目绑定到真实项目根；`protocol.yaml` 和 `project.yaml` 是治理项目级固定身份。Agent Registry 必须位于 Run 内，不能
 从上一个 Run 继承角色、路径、thread id、agent id 或权限。`current-run` 只是便利指针，
 不是权限或恢复事实。
 
@@ -64,6 +75,12 @@ reducer 生成。任务文件冻结后 `status` 永远为 `draft`，不得用任
 | `tasks/`、`inbox/`、`decisions/`、`evidence/` | Coordinator / `manage_run.py` |
 | `outbox/<agent-id>/` | 对应 Agent；Codex 结果可由 Coordinator 代理 |
 | `events/`、`locks/`、`delegations/`、`native/` | Coordinator |
+| `claims/tasks/`、`claims/threads/` | 具备相应 claim 能力的 Agent，在独立 claim 锁内追加不可变 claim/release 记录 |
+| `executors/`、`executors/releases/` | Executor pool，在独立 executor 锁内追加短期 binding/release；不写长期 TEAM |
+
+原始 claim 文件不得覆盖。持有者主动让出时，使用 `agent_claim.py release-task` 或
+`release-thread` 在对应 `releases/` 子目录追加 release 记录；release 只改变后续 operational
+owner 解析，不伪造任务完成，也不自动把任务状态改回 `ready`。
 | `versions/version-contract.yaml`、`versions/candidates/` | Coordinator |
 | `summary.md`、`archive/` | Coordinator |
 
@@ -88,7 +105,10 @@ dispatch/release 使用的配置证据和底层验证产物都不能被静默替
 - 任务必须继承 Owner 的所有 forbidden paths。
 - 子代理权限必须是父智能体权限的真子集或相同范围，不能扩大。
 
-存在 owned path 重叠的任务必须通过 DAG 串行；没有依赖关系时验证失败。
+存在 owned path 重叠的任务必须通过 DAG 依赖或显式 `parent_task_id` 关系串行；没有任何
+序列化关系时验证失败。`assignment_mode:
+claimable` 的任务使用 `owner_agent: pool` 和 `eligible_agents`，owned paths 必须同时处于
+所有 eligible Agent 的 writable scope；抢占后 effective Owner 才解析为 claimant。
 
 ### 项目交付版本
 
@@ -164,7 +184,9 @@ Review/QA 要求的实现修复如果不改变冻结目标、范围、验收和�
 其他文件不能替代任务或结果。
 
 Coordinator 是原生工具事件、重试、终止、`RELEASE_READY` 和 `TASK_COMPLETED` 的唯一
-事件写入者。`HANDOFF_READY` 必须由 Owner 发给 Reviewer，`REVIEW_APPROVED` 必须由
+事件写入者。`TASK_READY`/固定任务的 `TASK_DISPATCHED` 可以由拥有 `task_publish` 的父任务
+Agent 在 `hybrid`/`self_service` 策略下写入；任务池只能先写 `TASK_READY`，claim 后由具备
+`task_claim` 的 claimant 写 `TASK_DISPATCHED`。`HANDOFF_READY` 必须由 Owner 发给 Reviewer，`REVIEW_APPROVED` 必须由
 Reviewer 发给 QA；进入 Release 的任务必须声明已注册的 `release_agent`，并由
 `RELEASE_READY` 精确投递给它。
 
@@ -178,6 +200,9 @@ Reviewer 发给 QA；进入 Release 的任务必须声明已注册的 `release_a
 - 每次执行尝试使用新的 `attempt_id`；同一尝试内的传输重投继续复用原 idempotency key。
   任务内容不变时 task id 不变，只有 ACK、lease 和 result 产生新的尝试文件。
 - ACK 必须先落盘并作为 `ACK` payload；没有当前尝试的 ACK 不能建立 lease 或提交结果。
+- 在 capability pool 中，ACK、lease、result 可带 `executor_id`；验证器会检查它与 task、
+  principal Agent 和 attempt 的 immutable binding 一致。旧回执缺少该字段时按 legacy principal
+  兼容读取。
 - lease 由 `manage_run.py write-lease` 创建，且 `attempt_id` 必须匹配当前 ACK；获取和到期
   时间必须有时区且顺序有效。
   running 任务没有有效未过期 lease 时验证失败并进入恢复。
@@ -185,6 +210,8 @@ Reviewer 发给 QA；进入 Release 的任务必须声明已注册的 `release_a
   尝试。新 ACK 的 `attempt_id` 不得复用；lease/result 必须绑定该 ACK。
 - lease 超时后先检查副作用，再决定重投；生产、资金、删除、migration 和发布状态不明时
   禁止自动重试。
+- ACK/lease 超时由 `recover_timeout.py` 记录 `blocked_by`、side-effect state 和下一动作；
+  不因为 `fast` profile 自动伪造失败、重试或 dead-letter。
 - ACK 尝试数和重试调度都受 manifest `max_attempts` 限制。耗尽后使用
   `manage_run.py write-dead-letter`；`attempts` 必须等于事件中实际 ACK 尝试数并达到该
   上限，`failed_event_id` 必须指向本任务的真实失败事件。随后以该文件为 payload 写
@@ -198,15 +225,21 @@ manifest 的任务索引必须与 `tasks/` 完全一致。依赖必须存在、�
 `completed` 后才能 `TASK_READY`。
 
 `max_parallel` 限制 dispatched、acknowledged、running、reviewing 和 qa_running 的并发
-数量。锁通过 `manage_run.py lock` 管理：
+数量。Emergency 的 `executor_policy=capability_pool` 允许同一 principal 在额度内绑定多个
+executor，但不按角色设置隐含单实例队列。锁通过 `manage_run.py lock` 管理：
 
 - path 资源必须位于任务 owned paths。
 - logical 资源使用 `logical:<name>`。
 - Owner 必须等于任务 Owner。
 - 获取和到期时间必须有效。
 - 父子路径锁视为冲突。
+- logical/environment/workspace/release lane 冲突也必须串行；不同 worktree 的同类型任务可以并行。
 - 终止任务不能保留活动锁。
 - release 前必须释放全部活动锁；历史锁移动到 `archive/locks/`。
+
+任务发布、任务 claim、thread claim 使用独立串行锁。claim 记录写入后不可覆盖；第二个
+claimant 必须等待 claim lease 到期并完成副作用检查。thread claim 还必须绑定 platform 和
+精确 project workspace。
 
 ## 9. 治理与人工门禁
 

@@ -11,11 +11,16 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from adapters import codex, document, hermes
+from claim_lib import active_task_claim, effective_owner
+from executor_pool import load_executor_binding
 from protocol_lib import frontmatter, parse_agent_profiles, path_within, scalar_map, sha256
 
 
-def _operation_id(run_id: str, task_id: str, agent_id: str, task_hash: str) -> str:
-    material = f"{run_id}\0{task_id}\0{agent_id}\0{task_hash}".encode()
+def _operation_id(run_id: str, task_id: str, agent_id: str, task_hash: str, executor_id: str | None = None) -> str:
+    material = f"{run_id}\0{task_id}\0{agent_id}\0{task_hash}"
+    if executor_id:
+        material += f"\0{executor_id}"
+    material = material.encode()
     return "WAKE-" + hashlib.sha256(material).hexdigest()[:24]
 
 
@@ -50,6 +55,7 @@ def wake_agent(
     session_map: str | Path | None = None,
     hermes_command: Sequence[str] | None = None,
     codex_command: Sequence[str] | None = None,
+    executor_id: str | None = None,
     dry_run: bool = False,
 ) -> dict[str, Any]:
     run_dir = Path(run_dir).expanduser().resolve()
@@ -57,15 +63,25 @@ def wake_agent(
     agents = parse_agent_profiles((run_dir / "agents.yaml").read_text(encoding="utf-8"), source="agents")
     task_path = run_dir / "tasks" / f"{task_id}.md"
     task = frontmatter(task_path)
-    if task.get("owner_agent") != agent_id or agent_id not in agents:
+    resolved_owner = effective_owner(run_dir, task)
+    if resolved_owner != agent_id or agent_id not in agents:
         raise ValueError("wake identity is not the registered task owner")
-    workspace, allowed_roots = _load_project(run_dir)
+    project_workspace, allowed_roots = _load_project(run_dir)
+    workspace = project_workspace
+    binding: dict[str, str] | None = None
+    if executor_id:
+        binding = load_executor_binding(run_dir, executor_id)
+        if binding.get("task_id") != task_id:
+            raise ValueError("executor binding task does not match wake task")
+        if binding.get("principal_agent_id") != agent_id:
+            raise ValueError("executor binding principal does not match wake agent")
+        workspace = Path(binding["workspace"]).expanduser().resolve()
     if not workspace.is_dir():
-        raise ValueError("project workspace does not exist")
+        raise ValueError("executor workspace does not exist")
     for owned in json.loads(task.get("owned_paths", "[]")):
         if not path_within(owned, allowed_roots, workspace):
             raise ValueError(f"owned path exceeds project roots: {owned}")
-    runtime = str(agents[agent_id].get("runtime", "document"))
+    runtime = str(binding.get("runtime")) if binding else str(agents[agent_id].get("runtime", "document"))
     adapter = requested_adapter or ("codex" if runtime.startswith("codex") else "document")
     if adapter in {"hermes", "codex"}:
         if session_map is None and (hermes_command if adapter == "hermes" else codex_command):
@@ -73,14 +89,17 @@ def wake_agent(
         if session_map is not None:
             _validate_mapping(Path(session_map), agent_id, workspace, adapter)
     task_hash = sha256(task_path)
+    claim = active_task_claim(run_dir, task_id)
     operation = {
         "protocol_version": 3,
         "kind": "wake_operation",
-        "operation_id": _operation_id(manifest["run_id"], task_id, agent_id, task_hash),
+        "operation_id": _operation_id(manifest["run_id"], task_id, agent_id, task_hash, executor_id),
         "run_id": manifest["run_id"], "task_id": task_id, "agent_id": agent_id,
+        "executor_id": executor_id,
         "adapter": adapter, "workspace": str(workspace), "task_path": str(task_path),
         "task_sha256": task_hash, "owned_paths": json.loads(task.get("owned_paths", "[]")),
         "forbidden_paths": json.loads(task.get("forbidden_paths", "[]")),
+        "claim_id": claim.get("claim_id") if claim else None,
         "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
     }
     operation_path = run_dir / "operations" / f'{operation["operation_id"]}.json'
@@ -96,19 +115,25 @@ def wake_agent(
         temporary.write_text(json.dumps(operation, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         os.replace(temporary, operation_path)
 
-    if adapter == "document":
-        result = document.dispatch(run_dir, operation, dry_run=dry_run)
-    elif adapter == "hermes":
-        result = hermes.dispatch(operation, hermes_command)
-    elif adapter == "codex":
-        result = codex.dispatch(operation, codex_command)
-    else:
-        result = {"adapter": adapter, "status": "unsupported", "reason": "unknown adapter"}
+    try:
+        if adapter == "document":
+            result = document.dispatch(run_dir, operation, dry_run=dry_run)
+        elif adapter == "hermes":
+            result = hermes.dispatch(operation, hermes_command)
+        elif adapter == "codex":
+            result = codex.dispatch(operation, codex_command)
+        else:
+            result = {"adapter": adapter, "status": "unsupported", "reason": "unknown adapter"}
+    except (OSError, ValueError, RuntimeError) as exc:
+        result = {"adapter": adapter, "status": "failed", "reason": str(exc)}
     if result["status"] in {"unsupported", "failed"}:
         unsupported = adapter
-        result = document.dispatch(run_dir, operation, dry_run=dry_run)
-        result["status"] = "fallback_document" if not dry_run else "planned_fallback_document"
-        result["unsupported_adapter"] = unsupported
+        try:
+            result = document.dispatch(run_dir, operation, dry_run=dry_run)
+            result["status"] = "fallback_document" if not dry_run else "planned_fallback_document"
+            result["unsupported_adapter"] = unsupported
+        except (OSError, ValueError, RuntimeError) as exc:
+            result = {"adapter": adapter, "status": "failed", "reason": str(exc), "unsupported_adapter": unsupported}
     result.update({"operation_id": operation["operation_id"], "operation_path": str(operation_path)})
     return result
 
@@ -116,10 +141,11 @@ def wake_agent(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-dir", required=True); parser.add_argument("--task-id", required=True)
-    parser.add_argument("--agent-id", required=True); parser.add_argument("--adapter", choices=("document", "hermes", "codex"))
+    parser.add_argument("--agent-id", required=True); parser.add_argument("--executor-id")
+    parser.add_argument("--adapter", choices=("document", "hermes", "codex"))
     parser.add_argument("--session-map"); parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
-    print(json.dumps(wake_agent(args.run_dir, args.task_id, args.agent_id, requested_adapter=args.adapter, session_map=args.session_map, dry_run=args.dry_run), ensure_ascii=False, indent=2))
+    print(json.dumps(wake_agent(args.run_dir, args.task_id, args.agent_id, requested_adapter=args.adapter, session_map=args.session_map, executor_id=args.executor_id, dry_run=args.dry_run), ensure_ascii=False, indent=2))
     return 0
 
 

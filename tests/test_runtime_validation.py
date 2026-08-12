@@ -9,6 +9,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.governance_test_support import governance_root
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
@@ -56,9 +58,11 @@ class RuntimeValidationGateTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.project = Path(self.temp.name) / "project"
         self.project.mkdir()
+        self.governance = governance_root(self.temp.name)
         self.command("init_project_agents.py", "--project-root", self.project, "--project-id", "fixture",
-                     "--project-name", "Fixture", "--agents", "A01-coordinator,A02-worker", "--user-confirmed")
-        self.bus = self.project / ".multi-agent-collaboration"
+                     "--project-name", "Fixture", "--agents", "A01-coordinator,A02-worker", "--user-confirmed",
+                     "--governance-root", self.governance)
+        self.bus = self.governance / "projects" / "fixture"
 
     def command(self, script: str, *args: object, ok: bool = True) -> subprocess.CompletedProcess[str]:
         result = subprocess.run([sys.executable, str(SCRIPTS / script), *map(str, args)], text=True, capture_output=True)
@@ -67,7 +71,8 @@ class RuntimeValidationGateTests(unittest.TestCase):
         return result
 
     def validate(self, needle: str | None = None) -> subprocess.CompletedProcess[str]:
-        result = self.command("validate_agents.py", "--project-root", self.project, ok=False)
+        result = self.command("validate_agents.py", "--project-root", self.project,
+                              "--governance-root", self.governance, ok=False)
         if needle:
             self.assertNotEqual(result.returncode, 0, result.stdout)
             self.assertIn(needle.lower(), result.stdout.lower())
@@ -76,7 +81,7 @@ class RuntimeValidationGateTests(unittest.TestCase):
     def bind(self, agent: str = "A02-worker", session: str = "SESSION-001") -> Path:
         self.command("bind_session.py", "--project-root", self.project, "--agent-id", agent,
                      "--platform", "hermes", "--session-id", session, "--model", "model-one",
-                     "--provider", "provider-one")
+                     "--provider", "provider-one", "--governance-root", self.governance)
         current = json.loads((self.bus / "agents" / agent / "runtime/CURRENT_RUNTIME.json").read_text())
         return self.bus / "agents" / agent / "runtime" / current["path"]
 
@@ -116,7 +121,8 @@ class RuntimeValidationGateTests(unittest.TestCase):
 
         self.command("record_agent_runtime.py", "--project-root", self.project, "--agent-id", "A01-coordinator",
                      "--model", "m", "--provider", "p", "--platform", "hermes", "--session-id", "ORPHAN",
-                     "--profile", "default", "--workspace", self.project, "--runtime-kind", "hermes-thread")
+                     "--profile", "default", "--workspace", self.project, "--runtime-kind", "hermes-thread",
+                     "--governance-root", self.governance)
         self.validate("orphan runtime profile")
 
     def test_activity_chain_attribution_references_usage_and_secret_scanning(self) -> None:
@@ -142,7 +148,9 @@ class RuntimeValidationGateTests(unittest.TestCase):
         }
         input_path = Path(self.temp.name) / "activity.json"
         input_path.write_text(json.dumps(payload))
-        pointer = json.loads(self.command("record_agent_activity.py", "--project-root", self.project, "--agent-id", "A02-worker", "--input", input_path).stdout)
+        pointer = json.loads(self.command("record_agent_activity.py", "--project-root", self.project,
+                            "--governance-root", self.governance, "--agent-id", "A02-worker",
+                            "--input", input_path).stdout)
         ledger = self.bus / "agents/A02-worker/activity/RUN-001/TASK-001/ATTEMPT-001"
         record_path = ledger / pointer["path"]
         record = json.loads(record_path.read_text())
@@ -176,7 +184,8 @@ class RuntimeValidationGateTests(unittest.TestCase):
         self.validate("bridge")
 
         bridge.unlink()
-        self.command("rebuild_index.py", "--project-root", self.project)
+        self.command("rebuild_index.py", "--project-root", self.project,
+                     "--governance-root", self.governance)
         index = self.bus / "index.jsonl"
         records = [json.loads(line) for line in index.read_text().splitlines()]
         records[0]["hash"] = "0" * 64

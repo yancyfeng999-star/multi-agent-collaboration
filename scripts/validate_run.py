@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import subprocess
 import uuid
@@ -34,6 +35,9 @@ from protocol_lib import (
     sha256,
     valid_iso8601,
 )
+from claim_lib import effective_owner
+from executor_pool import validate_binding
+from governance_paths import STORAGE_SCHEMA, SUPPORTED_STORAGE_SCHEMAS, load_project_binding
 
 
 REQUIRED_DIRS = (
@@ -213,6 +217,45 @@ def parse_iso(value: str) -> datetime | None:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
+def validate_attempt_executor(
+    values: dict[str, str],
+    *,
+    run_dir: Path,
+    task_id: str,
+    attempt_id: str,
+    agent_id: str,
+    errors: list[str],
+    source: str,
+) -> None:
+    """Check an optional receipt executor against its immutable binding."""
+
+    executor_id = values.get("executor_id")
+    if executor_id in {None, "", "null"}:
+        return
+    if not re.fullmatch(r"EXEC-[A-Za-z0-9][A-Za-z0-9._-]*", executor_id):
+        errors.append(f"{source}: invalid executor_id")
+        return
+    binding_path = run_dir / "executors" / f"{executor_id}.yaml"
+    if not binding_path.is_file():
+        errors.append(f"{source}: executor binding does not exist")
+        return
+    binding = add_protocol_error(
+        errors,
+        scalar_map,
+        binding_path.read_text(encoding="utf-8"),
+        source=str(binding_path),
+    )
+    if binding is None:
+        return
+    if (
+        binding.get("executor_id") != executor_id
+        or binding.get("task_id") != task_id
+        or binding.get("principal_agent_id") != agent_id
+        or binding.get("attempt_id") != attempt_id
+    ):
+        errors.append(f"{source}: executor binding does not match task, agent, or attempt")
+
+
 def dependency_cycle(graph: dict[str, list[str]]) -> list[str] | None:
     visiting: set[str] = set()
     visited: set[str] = set()
@@ -277,8 +320,9 @@ def expected_payload_path(
     task: dict[str, str],
     event: str,
     payload: Path,
+    event_time: datetime | None = None,
 ) -> bool:
-    owner = task["owner_agent"]
+    owner = effective_owner(run_dir, task, at=event_time, operational=False)
     kind = EVENT_PAYLOAD_KINDS.get(event)
     resolved = payload.resolve()
     if kind == "task":
@@ -385,8 +429,31 @@ def actor_error(
     from_agent: str,
     to_agent: str,
     task: dict[str, str],
+    *,
+    run_dir: Path | None = None,
+    agents: dict[str, dict[str, object]] | None = None,
+    event_time: datetime | None = None,
+    governance: str | None = None,
+    dispatch_policy: str | None = None,
 ) -> str | None:
-    owner = task["owner_agent"]
+    owner = effective_owner(run_dir, task, at=event_time, operational=False) if run_dir else task["owner_agent"]
+    agents = agents or {}
+    publisher_authorized = (
+        event in {"TASK_READY", "TASK_DISPATCHED"}
+        and task.get("assignment_mode", "fixed") != "claimable"
+        and from_agent == task.get("published_by")
+        and governance != "strict"
+        and dispatch_policy in {"hybrid", "self_service"}
+        and "task_publish" in set(agents.get(from_agent, {}).get("capabilities", []))
+    )
+    claim_authorized = (
+        event == "TASK_DISPATCHED"
+        and task.get("assignment_mode", "fixed") == "claimable"
+        and governance != "strict"
+        and dispatch_policy in {"hybrid", "self_service"}
+        and from_agent == owner
+        and "task_claim" in set(agents.get(from_agent, {}).get("capabilities", []))
+    )
     coordinator_events = {
         "TASK_READY",
         "TASK_DISPATCHED",
@@ -407,9 +474,10 @@ def actor_error(
         *NATIVE_EVENTS,
     }
     if event in coordinator_events and from_agent != "coordinator":
-        return f"{event} must come from coordinator"
+        if not (publisher_authorized or claim_authorized):
+            return f"{event} must come from coordinator"
     if event in {"TASK_READY", "TASK_DISPATCHED", "LEASE_ACQUIRED", "TASK_RESUMED"}:
-        if to_agent != owner:
+        if not (event == "TASK_READY" and task.get("assignment_mode", "fixed") == "claimable" and to_agent == "coordinator") and to_agent != owner:
             return f"{event} must target owner {owner}"
     if event == "ACK" and from_agent not in {owner, "coordinator"}:
         return "ACK must come from owner or coordinator proxy"
@@ -457,13 +525,7 @@ def git_worktree_clean(project_root: Path) -> bool:
     )
     if result.returncode:
         return False
-    remaining = []
-    for line in result.stdout.splitlines():
-        path = line[3:] if len(line) > 3 else line
-        if path == ".multi-agent-collaboration" or path.startswith(".multi-agent-collaboration/"):
-            continue
-        remaining.append(line)
-    return not remaining
+    return not result.stdout.splitlines()
 
 
 def git_current_branch(project_root: Path) -> str | None:
@@ -584,6 +646,12 @@ def main() -> int:
         (run_dir / "manifest.yaml").read_text(encoding="utf-8"),
         source=str(run_dir / "manifest.yaml"),
     ) or {}
+    if manifest.get("preflight_required") == "true" or "dispatch_policy" in manifest:
+        for dirname in ("claims/tasks", "claims/threads", "config", "operations"):
+            if not (run_dir / dirname).is_dir():
+                errors.append(f"missing optimized run directory: {dirname}")
+        if manifest.get("executor_policy") == "capability_pool" and not (run_dir / "executors").is_dir():
+            errors.append("missing optimized run directory: executors")
     state = add_protocol_error(
         errors,
         scalar_map,
@@ -693,6 +761,11 @@ def main() -> int:
     if manifest.get("governance") not in {"light", "standard", "strict"}:
         errors.append("invalid manifest governance")
     governance = manifest.get("governance", "")
+    dispatch_policy = manifest.get("dispatch_policy", "central")
+    if dispatch_policy not in {"central", "hybrid", "self_service"}:
+        errors.append("invalid manifest dispatch_policy")
+    if governance == "strict" and dispatch_policy != "central":
+        errors.append("strict governance requires central dispatch_policy")
     if manifest.get("transport") not in {"codex_native", "document_bus", "hybrid"}:
         errors.append("invalid manifest transport")
     if manifest.get("status") not in RUN_STATUSES or state.get("status") not in RUN_STATUSES:
@@ -707,8 +780,28 @@ def main() -> int:
 
     project_root_value = project.get("project_root", "")
     project_root = Path(project_root_value).resolve() if project_root_value else bus_root.parent
-    if project_root != bus_root.parent.resolve():
-        errors.append("project_root does not match document-bus location")
+    coordination_mode = manifest.get("coordination_mode")
+    if coordination_mode == "coordinated":
+        if manifest.get("governance_storage_schema") not in SUPPORTED_STORAGE_SCHEMAS:
+            errors.append(
+                "coordinated run governance_storage_schema must be one of "
+                + ", ".join(sorted(SUPPORTED_STORAGE_SCHEMAS))
+            )
+        binding_value = project.get("project_binding_ref", "")
+        binding_path = Path(binding_value).expanduser().resolve() if binding_value else None
+        if binding_path != (bus_root / "project-binding.yaml").resolve():
+            errors.append("coordinated run project_binding_ref must identify its governance project")
+        else:
+            try:
+                binding = load_project_binding(bus_root)
+                if binding["project_root"] != str(project_root):
+                    errors.append("governance binding project_root does not match project metadata")
+                if binding["project_id"] != project.get("project_id"):
+                    errors.append("governance binding project_id does not match project metadata")
+            except ProtocolError as exc:
+                errors.append(str(exc))
+    elif project_root != bus_root.parent.resolve():
+        errors.append("legacy project_root does not match document-bus location")
     allowed_roots = add_protocol_error(
         errors,
         json_string_list,
@@ -1080,8 +1173,37 @@ def main() -> int:
             errors.append(f"{task_path.name}: duplicate task idempotency_key")
         task_idempotency_keys.add(values["idempotency_key"])
         owner = values["owner_agent"]
-        if owner not in agents:
+        assignment_mode = values.get("assignment_mode", "fixed")
+        if assignment_mode not in {"fixed", "claimable"}:
+            errors.append(f"{task_path.name}: invalid assignment_mode")
+        eligible_agents: list[str] = []
+        if assignment_mode == "claimable":
+            if owner != "pool":
+                errors.append(f"{task_path.name}: claimable task owner must be pool")
+            try:
+                eligible_agents = json_string_list(
+                    values.get("eligible_agents", "[]"),
+                    field="eligible_agents",
+                    source=task_path.name,
+                )
+            except ProtocolError as exc:
+                errors.append(str(exc))
+            if not eligible_agents:
+                errors.append(f"{task_path.name}: claimable task needs eligible_agents")
+            for eligible in eligible_agents:
+                if eligible not in agents:
+                    errors.append(f"{task_path.name}: eligible agent is not registered: {eligible}")
+        elif owner not in agents:
             errors.append(f"{task_path.name}: owner is not registered")
+        published_by = values.get("published_by", "coordinator")
+        if published_by not in agents:
+            errors.append(f"{task_path.name}: published_by is not registered")
+        parent_task_id = values.get("parent_task_id", "null")
+        parent_hash = values.get("parent_task_sha256", "null")
+        if parent_task_id not in {"null", "", None}:
+            parent_path = run_dir / "tasks" / f"{parent_task_id}.md"
+            if not parent_path.is_file() or parent_hash != sha256(parent_path):
+                errors.append(f"{task_path.name}: parent task reference or hash is invalid")
         for role in ("reviewer_agent", "qa_agent", "release_agent"):
             role_agent = values.get(role, "null")
             if role_agent != "null" and role_agent not in agents:
@@ -1093,24 +1215,69 @@ def main() -> int:
             "forbidden_paths",
             "risk_flags",
             "human_gates",
+            "required_capabilities",
+            "logical_resources",
+            "environment_resources",
         ):
             parsed = add_protocol_error(
                 errors,
                 json_string_list,
-                values[field],
+                values.get(field, "[]"),
                 field=field,
                 source=task_path.name,
             )
             lists[field] = parsed or []
             if len(lists[field]) != len(set(lists[field])):
                 errors.append(f"{task_path.name}: {field} contains duplicates")
-        owner_profile = agents.get(owner, {})
-        owner_writable = [str(item) for item in owner_profile.get("writable_paths", [])]
-        owner_forbidden = [str(item) for item in owner_profile.get("forbidden_paths", [])]
+        try:
+            resource_steps = json.loads(values.get("resource_steps", "[]"))
+        except json.JSONDecodeError:
+            resource_steps = None
+            errors.append(f"{task_path.name}: resource_steps must be an inline JSON list")
+        if resource_steps is not None:
+            if not isinstance(resource_steps, list):
+                errors.append(f"{task_path.name}: resource_steps must be a list")
+            else:
+                step_ids: set[str] = set()
+                for step in resource_steps:
+                    if not isinstance(step, dict) or not isinstance(step.get("step_id"), str) or not step.get("step_id"):
+                        errors.append(f"{task_path.name}: resource step needs a step_id")
+                        continue
+                    if step["step_id"] in step_ids:
+                        errors.append(f"{task_path.name}: duplicate resource step_id {step['step_id']}")
+                    step_ids.add(step["step_id"])
+                    resources = step.get("resources", [])
+                    if not isinstance(resources, list) or not resources or not all(isinstance(item, str) and item for item in resources):
+                        errors.append(f"{task_path.name}: resource step {step['step_id']} needs non-empty resources")
+        owner_profiles = [agents[item] for item in eligible_agents if item in agents] if assignment_mode == "claimable" else [agents.get(owner, {})]
+        required_capabilities = set(lists["required_capabilities"])
+        if required_capabilities:
+            for profile in owner_profiles:
+                available_capabilities = {str(item) for item in profile.get("capabilities", [])}
+                missing_capabilities = sorted(required_capabilities - available_capabilities)
+                if missing_capabilities:
+                    errors.append(
+                        f"{task_path.name}: owner lacks required capabilities: {','.join(missing_capabilities)}"
+                    )
+        workspace_policy = values.get("workspace_policy", "isolated_writer")
+        if workspace_policy not in {"isolated_writer", "shared_read_only", "shared_no_git_mutation"}:
+            errors.append(f"{task_path.name}: invalid workspace_policy")
+        workspace_value = values.get("workspace", "null")
+        if workspace_value not in {"", "null", None} and not path_within(workspace_value, allowed_roots, project_root):
+            errors.append(f"{task_path.name}: workspace exceeds allowed_roots")
+        if manifest.get("executor_policy") == "capability_pool" and workspace_policy == "isolated_writer" and workspace_value in {"", "null", None}:
+            errors.append(f"{task_path.name}: capability_pool isolated_writer requires workspace")
+        if values.get("release_lane", "none") in {"", "null", None}:
+            errors.append(f"{task_path.name}: release_lane must be explicit")
+        owner_writable = [str(item) for profile in owner_profiles for item in profile.get("writable_paths", [])]
+        owner_forbidden = [str(item) for profile in owner_profiles for item in profile.get("forbidden_paths", [])]
         for owned_path in lists["owned_paths"]:
-            if not path_within(owned_path, owner_writable, project_root):
+            if assignment_mode == "claimable":
+                if any(not path_within(owned_path, [str(scope) for scope in profile.get("writable_paths", [])], project_root) for profile in owner_profiles):
+                    errors.append(f"{task_path.name}: owned path is not writable by every eligible agent: {owned_path}")
+            elif not path_within(owned_path, owner_writable, project_root):
                 errors.append(f"{task_path.name}: owned path exceeds owner scope: {owned_path}")
-            if path_within(owned_path, owner_forbidden, project_root):
+            if any(path_within(owned_path, [str(scope) for scope in profile.get("forbidden_paths", [])], project_root) for profile in owner_profiles):
                 errors.append(f"{task_path.name}: owned path is forbidden: {owned_path}")
         for forbidden_path in lists["forbidden_paths"]:
             if not path_within(forbidden_path, allowed_roots, project_root):
@@ -1120,7 +1287,8 @@ def main() -> int:
         for forbidden_path in owner_forbidden:
             if not path_within(forbidden_path, lists["forbidden_paths"], project_root):
                 errors.append(f"{task_path.name}: task must inherit owner forbidden paths")
-        if owner_profile.get("runtime") == "document_subagent":
+        owner_profile = owner_profiles[0] if owner_profiles else {}
+        if assignment_mode == "fixed" and owner_profile.get("runtime") == "document_subagent":
             if values.get("reviewer_agent") != owner_profile.get("parent_agent_id"):
                 errors.append(f"{task_path.name}: parent must review document_subagent task")
         tasks[task_id] = values
@@ -1151,6 +1319,11 @@ def main() -> int:
     decisions: dict[str, dict[str, str]] = {}
     decision_paths: dict[str, Path] = {}
     for path in sorted((run_dir / "decisions").glob("*.yaml")):
+        if path.name == "scope-freeze.yaml":
+            # Scope freeze is a boundary document, not a human_gate.  It is
+            # validated separately below and must not be folded into the
+            # manifest human_gates index.
+            continue
         values = add_protocol_error(
             errors,
             scalar_map,
@@ -1196,6 +1369,58 @@ def main() -> int:
             errors.append(f"{path.name}: gate task does not exist")
         decisions[gate_id] = values
         decision_paths[gate_id] = path.resolve()
+    scope_path = run_dir / "decisions" / "scope-freeze.yaml"
+    if scope_path.is_file():
+        scope_values = add_protocol_error(
+            errors,
+            scalar_map,
+            scope_path.read_text(encoding="utf-8"),
+            source=str(scope_path),
+        ) or {}
+        scope_required = (
+            "protocol_version", "kind", "run_id", "scope_id", "objective_sha256",
+            "requested_paths", "forbidden_paths", "target_environment", "max_parallel",
+            "governance", "execution_profile", "dispatch_policy", "version_contract_sha256",
+            "owner_agent", "created_at",
+        )
+        missing = [key for key in scope_required if key not in scope_values]
+        if missing:
+            errors.append(f"scope-freeze.yaml: missing scope keys {', '.join(missing)}")
+        else:
+            if (
+                scope_values.get("protocol_version") != PROTOCOL_VERSION
+                or scope_values.get("kind") != "scope_freeze"
+                or scope_values.get("run_id") != run_id
+                or scope_values.get("owner_agent") != "coordinator"
+            ):
+                errors.append("scope-freeze.yaml: scope protocol or owner mismatch")
+            if not valid_iso8601(scope_values.get("created_at", "")):
+                errors.append("scope-freeze.yaml: created_at requires timezone")
+            requested = add_protocol_error(errors, json_string_list, scope_values.get("requested_paths", "[]"), field="requested_paths", source=str(scope_path)) or []
+            forbidden = add_protocol_error(errors, json_string_list, scope_values.get("forbidden_paths", "[]"), field="forbidden_paths", source=str(scope_path)) or []
+            for boundary in [*requested, *forbidden]:
+                if not path_within(boundary, allowed_roots, project_root):
+                    errors.append(f"scope-freeze.yaml: boundary exceeds project allowed_roots: {boundary}")
+            for left in requested:
+                if any(paths_overlap(left, right, project_root) for right in requested if right != left):
+                    errors.append(f"scope-freeze.yaml: requested paths overlap: {left}")
+            if scope_values.get("governance") != governance or scope_values.get("dispatch_policy") != manifest.get("dispatch_policy", "central"):
+                errors.append("scope-freeze.yaml: run policy does not match manifest")
+            if manifest.get("scope_freeze_ref") not in {"", "null", None}:
+                ref = Path(manifest["scope_freeze_ref"]).expanduser()
+                if not ref.is_absolute():
+                    ref = run_dir / ref
+                if ref.resolve() != scope_path.resolve() or manifest.get("scope_freeze_ref_sha256") != sha256(scope_path):
+                    errors.append("manifest scope freeze reference or hash mismatch")
+    elif (
+        manifest.get("preflight_required", "false") == "true"
+        and (manifest.get("execution_profile", "normal") != "emergency" or governance == "strict")
+    ):
+        # Structure/lifecycle validation remains compatible with a newly
+        # initialized Run before its dispatch boundary is frozen.  The
+        # read-only preflight and Coordinator are the enforcement point and
+        # will block dispatch until this document exists.
+        warnings.append("preflight-required run has no scope freeze; dispatch remains blocked")
     manifest_gates = add_protocol_error(
         errors,
         json_string_list,
@@ -1360,13 +1585,20 @@ def main() -> int:
         if task_id not in tasks:
             errors.append(f"{path.name}: task does not exist")
             continue
-        if values["from_agent"] not in agent_ids or values["to_agent"] not in agent_ids:
+        claimable_task = tasks[task_id].get("assignment_mode", "fixed") == "claimable"
+        valid_event_agents = agent_ids | ({"pool"} if claimable_task else set())
+        if values["from_agent"] not in valid_event_agents or values["to_agent"] not in valid_event_agents:
             errors.append(f"{path.name}: event agent is not registered")
         actor_problem = actor_error(
             event_name,
             values["from_agent"],
             values["to_agent"],
             tasks[task_id],
+            run_dir=run_dir,
+            agents=agents,
+            event_time=parse_iso(values.get("created_at", "")),
+            governance=governance,
+            dispatch_policy=manifest.get("dispatch_policy", "central"),
         )
         if actor_problem:
             errors.append(f"{path.name}: {actor_problem}")
@@ -1394,6 +1626,7 @@ def main() -> int:
                     tasks[task_id],
                     event_name,
                     payload,
+                    parse_iso(values.get("created_at", "")),
                 ):
                     errors.append(f"{path.name}: payload path is not valid for {event_name}")
                 validate_event_payload_semantics(
@@ -1422,7 +1655,12 @@ def main() -> int:
                     task = tasks[task_id]
                     expires = parse_iso(lease_values.get("lease_expires_at", ""))
                     if (
-                        lease_values.get("agent_id") != task["owner_agent"]
+                        lease_values.get("agent_id") != effective_owner(
+                            run_dir,
+                            task,
+                            at=parse_iso(values.get("created_at", "")),
+                            operational=False,
+                        )
                         or lease_values.get("task_sha256") != sha256(task_paths[task_id])
                     ):
                         errors.append(f"{path.name}: lease ownership or task hash mismatch")
@@ -1520,9 +1758,15 @@ def main() -> int:
                 for left in task_lists[left_id]["owned_paths"]
                 for right in task_lists[right_id]["owned_paths"]
             )
+            parent_link = {
+                str(tasks[left_id].get("parent_task_id", "null")),
+                str(tasks[right_id].get("parent_task_id", "null")),
+            }
             if overlap and not (
                 depends_on(dependency_graph, left_id, right_id)
                 or depends_on(dependency_graph, right_id, left_id)
+                or right_id in parent_link
+                or left_id in parent_link
             ):
                 errors.append(
                     f"tasks {left_id} and {right_id} have overlapping owned_paths without serialization"
@@ -1563,6 +1807,15 @@ def main() -> int:
                 continue
             task_id = values["task_id"]
             attempt_id = values["attempt_id"]
+            validate_attempt_executor(
+                values,
+                run_dir=run_dir,
+                task_id=task_id,
+                attempt_id=attempt_id,
+                agent_id=values["agent_id"],
+                errors=errors,
+                source=ack_path.name,
+            )
             attempt_key = (task_id, attempt_id)
             if attempt_key in ack_attempts:
                 errors.append(f"{task_id}: duplicate ACK attempt {attempt_id}")
@@ -1577,7 +1830,12 @@ def main() -> int:
                 or values["kind"] != "ack"
                 or values["run_id"] != run_id
                 or not task
-                or values["agent_id"] != task.get("owner_agent")
+                or values["agent_id"] != effective_owner(
+                    run_dir,
+                    task,
+                    at=parse_iso(values.get("acknowledged_at", "")),
+                    operational=False,
+                )
                 or ack_path.parent.name != values["agent_id"]
             ):
                 errors.append(f"{ack_path.name}: ACK ownership or protocol mismatch")
@@ -1622,13 +1880,27 @@ def main() -> int:
                 continue
             task_id = values["task_id"]
             attempt_id = values["attempt_id"]
+            validate_attempt_executor(
+                values,
+                run_dir=run_dir,
+                task_id=task_id,
+                attempt_id=attempt_id,
+                agent_id=values["agent_id"],
+                errors=errors,
+                source=lease_path.name,
+            )
             task = tasks.get(task_id)
             if (
                 values["protocol_version"] != PROTOCOL_VERSION
                 or values["kind"] != "lease"
                 or values["run_id"] != run_id
                 or not task
-                or values["agent_id"] != task.get("owner_agent")
+                or values["agent_id"] != effective_owner(
+                    run_dir,
+                    task,
+                    at=parse_iso(values.get("acquired_at", "")),
+                    operational=False,
+                )
                 or lease_path.parent.name != values["agent_id"]
             ):
                 errors.append(f"{lease_path.name}: lease ownership or protocol mismatch")
@@ -1666,6 +1938,15 @@ def main() -> int:
                 continue
             task_id = values["task_id"]
             attempt_id = values["attempt_id"]
+            validate_attempt_executor(
+                values,
+                run_dir=run_dir,
+                task_id=task_id,
+                attempt_id=attempt_id,
+                agent_id=values["agent_id"],
+                errors=errors,
+                source=result_path.name,
+            )
             attempt_key = (task_id, attempt_id)
             if attempt_key in result_attempts:
                 errors.append(f"{task_id}: duplicate result attempt {attempt_id}")
@@ -1680,7 +1961,12 @@ def main() -> int:
                 or values["kind"] != "result"
                 or values["run_id"] != run_id
                 or not task
-                or values["agent_id"] != task.get("owner_agent")
+                or values["agent_id"] != effective_owner(
+                    run_dir,
+                    task,
+                    at=parse_iso(values.get("created_at", "")),
+                    operational=False,
+                )
                 or result_path.parent.name != values["agent_id"]
             ):
                 errors.append(f"{result_path.name}: result ownership or protocol mismatch")
@@ -2162,8 +2448,10 @@ def main() -> int:
             errors.append(f"{path.name}: filename must match lock_id")
         task_id = values["owner_task"]
         task = tasks.get(task_id)
-        if not task or values["owner_agent"] != task.get("owner_agent"):
+        if not task or values["owner_agent"] != effective_owner(run_dir, task):
             errors.append(f"{path.name}: lock owner must be task owner")
+        if values.get("queue_key", "null") not in {"", "null"} and values.get("step_id", "null") in {"", "null"}:
+            errors.append(f"{path.name}: queue-backed lock requires step_id")
         elif task_states.get(task_id) in TERMINAL_TASK_STATUSES:
             errors.append(f"{path.name}: terminal task cannot retain active lock")
         resource = values["resource"]
@@ -2187,6 +2475,49 @@ def main() -> int:
                 overlap = paths_overlap(left["resource"], right["resource"], project_root)
             if overlap:
                 errors.append(f"{left_path.name} conflicts with {right_path.name}")
+
+    queue_dir = run_dir / "locks" / "queue"
+    for grant_path in sorted((queue_dir / "grants").glob("*.yaml")) if (queue_dir / "grants").is_dir() else []:
+        values = add_protocol_error(
+            errors,
+            scalar_map,
+            grant_path.read_text(encoding="utf-8"),
+            source=str(grant_path),
+        ) or {}
+        required = ("protocol_version", "kind", "run_id", "request_id", "task_id", "agent_id", "step_id", "queue_key", "lock_id", "granted_at", "status")
+        missing = [key for key in required if key not in values]
+        if missing:
+            errors.append(f"{grant_path.name}: missing resource grant keys {', '.join(missing)}")
+            continue
+        request_path = queue_dir / f"{values['request_id']}.yaml"
+        lock_path = run_dir / "locks" / f"{values['lock_id']}.yaml"
+        if (
+            grant_path.name != f"{values['request_id']}.yaml"
+            or values["protocol_version"] != PROTOCOL_VERSION
+            or values["kind"] != "resource_grant"
+            or values["run_id"] != run_id
+            or values["status"] != "granted"
+            or not valid_iso8601(values["granted_at"])
+            or not request_path.is_file()
+            or not lock_path.is_file()
+        ):
+            errors.append(f"{grant_path.name}: resource grant reference is invalid")
+            continue
+        request_values = add_protocol_error(errors, scalar_map, request_path.read_text(encoding="utf-8"), source=str(request_path)) or {}
+        lock_values = add_protocol_error(errors, scalar_map, lock_path.read_text(encoding="utf-8"), source=str(lock_path)) or {}
+        if (
+            request_values.get("request_id") != values["request_id"]
+            or request_values.get("task_id") != values["task_id"]
+            or request_values.get("agent_id") != values["agent_id"]
+            or request_values.get("step_id") != values["step_id"]
+            or request_values.get("queue_key") != values["queue_key"]
+            or lock_values.get("owner_task") != values["task_id"]
+            or lock_values.get("owner_agent") != values["agent_id"]
+            or lock_values.get("step_id") != values["step_id"]
+            or lock_values.get("queue_key") != values["queue_key"]
+            or lock_values.get("lock_id") != values["lock_id"]
+        ):
+            errors.append(f"{grant_path.name}: resource grant does not bind request and lock")
 
     dead_letter_tasks: set[str] = set()
     for path in sorted((run_dir / "dead-letter").glob("*.yaml")):
@@ -2271,6 +2602,317 @@ def main() -> int:
     for task_id, state_value in task_states.items():
         if state_value == "dead_letter" and task_id not in dead_letter_tasks:
             errors.append(f"{task_id}: dead_letter state lacks document")
+
+    executor_values: dict[str, dict[str, str]] = {}
+    executors_dir = run_dir / "executors"
+    for path in sorted(executors_dir.glob("EXEC-*.yaml")) if executors_dir.is_dir() else []:
+        values = add_protocol_error(
+            errors,
+            scalar_map,
+            path.read_text(encoding="utf-8"),
+            source=str(path),
+        )
+        if values is None:
+            continue
+        executor_id = values.get("executor_id", "")
+        if path.name != f"{executor_id}.yaml":
+            errors.append(f"{path.name}: executor filename must match executor_id")
+        if executor_id in executor_values:
+            errors.append(f"{path.name}: duplicate executor_id")
+        executor_values[executor_id] = values
+        errors.extend(f"{path.name}: {error}" for error in validate_binding(values, project_root))
+        if values.get("task_id") not in tasks:
+            errors.append(f"{path.name}: executor task does not exist")
+        if values.get("principal_agent_id") not in agents:
+            errors.append(f"{path.name}: executor principal is not registered")
+
+    executor_release_dir = executors_dir / "releases"
+    for path in sorted(executor_release_dir.glob("*.yaml")) if executor_release_dir.is_dir() else []:
+        values = add_protocol_error(
+            errors,
+            scalar_map,
+            path.read_text(encoding="utf-8"),
+            source=str(path),
+        )
+        if values is None:
+            continue
+        executor_id = values.get("executor_id", "")
+        required = (
+            "schema_version", "kind", "run_id", "executor_id", "binding_ref",
+            "binding_sha256", "released_by", "released_at", "reason", "status",
+        )
+        missing = [key for key in required if key not in values]
+        if missing:
+            errors.append(f"{path.name}: missing executor release keys {', '.join(missing)}")
+            continue
+        if path.name != f"{executor_id}.yaml":
+            errors.append(f"{path.name}: executor release filename must match executor_id")
+        binding = executor_values.get(executor_id)
+        binding_path = (executors_dir / f"{executor_id}.yaml").resolve()
+        release_ref = Path(values["binding_ref"]).expanduser()
+        if not release_ref.is_absolute():
+            release_ref = run_dir / release_ref
+        if (
+            values.get("schema_version") != "1.0"
+            or values.get("kind") not in {"executor_release", "executor_expiry"}
+            or values.get("run_id") != run_id
+            or not binding
+            or release_ref.resolve() != binding_path
+            or not binding_path.is_file()
+            or values.get("binding_sha256") != sha256(binding_path)
+            or values.get("released_by") != binding.get("principal_agent_id")
+            or values.get("status") not in {"released", "expired", "failed"}
+            or not valid_iso8601(values.get("released_at", ""))
+            or not values.get("reason", "").strip()
+        ):
+            errors.append(f"{path.name}: executor release does not match immutable binding")
+
+    # Claims are immutable ownership facts.  Validate them before native
+    # bindings so event actor checks and adapter evidence cannot rely on an
+    # unregistered, out-of-scope, or tampered claimant.
+    claim_dirs = {
+        "task_claim": run_dir / "claims" / "tasks",
+        "thread_claim": run_dir / "claims" / "threads",
+    }
+    claim_values: dict[str, dict[str, str]] = {}
+    claim_paths: dict[str, Path] = {}
+    for kind, claim_dir in claim_dirs.items():
+        for path in sorted(claim_dir.glob("*.yaml")) if claim_dir.is_dir() else []:
+            values = add_protocol_error(
+                errors,
+                scalar_map,
+                path.read_text(encoding="utf-8"),
+                source=str(path),
+            )
+            if values is None:
+                continue
+            claim_id = values.get("claim_id", "")
+            required = (
+                "protocol_version", "kind", "claim_id", "run_id", "task_id",
+                "task_sha256", "claimer_agent", "lease_acquired_at",
+                "lease_expires_at", "status",
+            )
+            if kind == "task_claim":
+                required += ("eligible_agents", "parent_causation_id")
+            else:
+                required += ("task_claim_id", "thread_id", "platform", "session_id", "workspace", "parent_causation_id")
+            missing = [key for key in required if key not in values]
+            if missing:
+                errors.append(f"{path.name}: missing {kind} keys {', '.join(missing)}")
+                continue
+            if path.name != f"{claim_id}.yaml":
+                errors.append(f"{path.name}: claim filename must match claim_id")
+            if claim_id in claim_values:
+                errors.append(f"{path.name}: duplicate claim_id")
+            claim_values[claim_id] = values
+            claim_paths[claim_id] = path
+            task_id = values["task_id"]
+            task = tasks.get(task_id)
+            if (
+                values["protocol_version"] != PROTOCOL_VERSION
+                or values["kind"] != kind
+                or values["run_id"] != run_id
+                or task is None
+            ):
+                errors.append(f"{path.name}: claim protocol, run, kind, or task mismatch")
+                continue
+            if values["task_sha256"] != sha256(task_paths[task_id]):
+                errors.append(f"{path.name}: claim task hash mismatch")
+            acquired = parse_iso(values["lease_acquired_at"])
+            expires = parse_iso(values["lease_expires_at"])
+            if not acquired or not expires or expires <= acquired:
+                errors.append(f"{path.name}: invalid claim lease interval")
+            if values["claimer_agent"] not in agents:
+                errors.append(f"{path.name}: claimant is not registered")
+            elif kind == "task_claim" and "task_claim" not in set(agents[values["claimer_agent"]].get("capabilities", [])):
+                errors.append(f"{path.name}: claimant lacks task_claim capability")
+            elif kind == "thread_claim" and "thread_claim" not in set(agents[values["claimer_agent"]].get("capabilities", [])):
+                errors.append(f"{path.name}: claimant lacks thread_claim capability")
+            if kind == "task_claim":
+                try:
+                    eligible = json_string_list(values["eligible_agents"], field="eligible_agents", source=str(path))
+                except ProtocolError:
+                    eligible = []
+                if task.get("assignment_mode", "fixed") != "claimable" or task.get("owner_agent") != "pool":
+                    errors.append(f"{path.name}: task claim requires claimable pool task")
+                if values["claimer_agent"] not in eligible:
+                    errors.append(f"{path.name}: claimant is not in eligible_agents")
+                if values["parent_causation_id"] != task.get("parent_task_id", "null"):
+                    errors.append(f"{path.name}: parent causation does not match task")
+                if values.get("executor_id") not in {None, "", "null"}:
+                    binding = executor_values.get(values["executor_id"])
+                    if not binding or binding.get("task_id") != task_id or binding.get("principal_agent_id") != values["claimer_agent"]:
+                        errors.append(f"{path.name}: executor binding does not match task claimant")
+            else:
+                if task.get("assignment_mode", "fixed") == "claimable":
+                    acquired_owner = effective_owner(run_dir, task, at=acquired, operational=False) if acquired else "pool"
+                else:
+                    acquired_owner = task.get("owner_agent")
+                if values["claimer_agent"] != acquired_owner:
+                    errors.append(f"{path.name}: thread claimant is not the task owner at acquisition")
+                executor_id = values.get("executor_id")
+                expected_workspace = str(project_root)
+                if executor_id not in {None, "", "null"}:
+                    binding = executor_values.get(executor_id)
+                    if not binding or binding.get("task_id") != task_id or binding.get("principal_agent_id") != values["claimer_agent"]:
+                        errors.append(f"{path.name}: executor binding does not match thread claimant")
+                    elif binding.get("workspace"):
+                        expected_workspace = binding["workspace"]
+                if values["workspace"] != expected_workspace:
+                    errors.append(f"{path.name}: thread workspace does not match executor workspace")
+                if values["platform"] not in {"codex", "hermes", "document"}:
+                    errors.append(f"{path.name}: invalid thread platform")
+                if values["platform"] in {"codex", "hermes"} and values.get("session_id") in {"", "null"}:
+                    errors.append(f"{path.name}: native thread claim requires session_id")
+                if values["task_claim_id"] not in {"null", ""}:
+                    task_claim = claim_values.get(values["task_claim_id"])
+                    if not task_claim or task_claim.get("task_id") != task_id or task_claim.get("claimer_agent") != values["claimer_agent"]:
+                        errors.append(f"{path.name}: thread task_claim_id does not bind to claimant")
+                    elif values.get("executor_id") not in {None, "", "null"} and task_claim.get("executor_id") not in {None, "", "null", values["executor_id"]}:
+                        errors.append(f"{path.name}: thread executor does not match task claim")
+
+    for kind, claim_dir in claim_dirs.items():
+        release_dir = claim_dir / "releases"
+        for path in sorted(release_dir.glob("*.yaml")) if release_dir.is_dir() else []:
+            values = add_protocol_error(
+                errors,
+                scalar_map,
+                path.read_text(encoding="utf-8"),
+                source=str(path),
+            )
+            if values is None:
+                continue
+            claim_id = values.get("claim_id", "")
+            required = ("protocol_version", "kind", "run_id", "claim_kind", "claim_id", "claim_ref", "claim_sha256", "released_by", "released_at", "reason", "status")
+            missing = [key for key in required if key not in values]
+            if missing:
+                errors.append(f"{path.name}: missing claim release keys {', '.join(missing)}")
+                continue
+            if path.name != f"{claim_id}.yaml":
+                errors.append(f"{path.name}: release filename must match claim_id")
+            original = claim_values.get(claim_id)
+            if (
+                values["protocol_version"] != PROTOCOL_VERSION
+                or values["kind"] != "claim_release"
+                or values["run_id"] != run_id
+                or values["claim_kind"] != kind
+                or not original
+                or values["claim_sha256"] != sha256(claim_paths[claim_id])
+                or values["released_by"] != original.get("claimer_agent")
+                or values["status"] != "released"
+                or not valid_iso8601(values["released_at"])
+                or not values["reason"].strip()
+            ):
+                errors.append(f"{path.name}: claim release does not match immutable claim")
+
+    # `wake_agent.py` operations are the common delivery fact for both Native
+    # and Document adapters.  They are JSON rather than protocol YAML, but
+    # still require the same run/task/hash/workspace binding.
+    wake_operation_ids: set[str] = set()
+    operations_dir = run_dir / "operations"
+    for path in sorted(operations_dir.glob("*.json")) if operations_dir.is_dir() else []:
+        try:
+            values = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            errors.append(f"{path.name}: wake operation must be valid JSON")
+            continue
+        if not isinstance(values, dict):
+            errors.append(f"{path.name}: wake operation must be an object")
+            continue
+        required = ("protocol_version", "kind", "operation_id", "run_id", "task_id", "agent_id", "adapter", "workspace", "task_path", "task_sha256", "owned_paths", "forbidden_paths", "created_at")
+        missing = [key for key in required if key not in values]
+        if missing:
+            errors.append(f"{path.name}: wake operation missing {', '.join(missing)}")
+            continue
+        operation_id = str(values["operation_id"])
+        if path.name != f"{operation_id}.json":
+            errors.append(f"{path.name}: wake operation filename must match operation_id")
+        if operation_id in wake_operation_ids:
+            errors.append(f"{path.name}: duplicate wake operation_id")
+        wake_operation_ids.add(operation_id)
+        task_id = str(values["task_id"])
+        task = tasks.get(task_id)
+        operation_claim = claim_values.get(str(values.get("claim_id"))) if values.get("claim_id") not in {None, "null", ""} else None
+        owner = operation_claim.get("claimer_agent") if operation_claim else (effective_owner(run_dir, task, operational=False) if task else "")
+        task_path_value = Path(str(values["task_path"])).expanduser()
+        if not task_path_value.is_absolute():
+            task_path_value = run_dir / task_path_value
+        if (
+            str(values.get("protocol_version")) != PROTOCOL_VERSION
+            or values.get("kind") != "wake_operation"
+            or values.get("run_id") != run_id
+            or task is None
+            or values.get("agent_id") != owner
+            or (
+                values.get("workspace")
+                != (
+                    executor_values.get(str(values.get("executor_id")), {}).get("workspace")
+                    if values.get("executor_id") not in {None, "", "null"}
+                    else str(project_root)
+                )
+            )
+            or task_path_value.resolve() != task_paths.get(task_id)
+            or values.get("task_sha256") != (sha256(task_paths[task_id]) if task_id in task_paths else "")
+        ):
+            errors.append(f"{path.name}: wake operation run/task/owner/hash/workspace mismatch")
+        if values.get("adapter") not in {"document", "codex", "hermes"}:
+            errors.append(f"{path.name}: invalid wake adapter")
+        if not valid_iso8601(str(values.get("created_at", ""))):
+            errors.append(f"{path.name}: wake operation created_at requires timezone")
+        if not isinstance(values.get("owned_paths"), list) or not isinstance(values.get("forbidden_paths"), list):
+            errors.append(f"{path.name}: wake operation path fields must be lists")
+        if "claim_id" in values and task and task.get("assignment_mode", "fixed") == "claimable":
+            claim = claim_values.get(str(values.get("claim_id")))
+            if not claim or claim.get("task_id") != task_id or claim.get("claimer_agent") != values.get("agent_id"):
+                errors.append(f"{path.name}: wake operation claim binding mismatch")
+            elif values.get("executor_id") not in {None, "", "null"} and claim.get("executor_id") not in {None, "", "null", values.get("executor_id")}:
+                errors.append(f"{path.name}: wake operation executor does not match claim")
+
+    for package in sorted((run_dir / "inbox").glob("*/*.json")):
+        try:
+            values = json.loads(package.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            errors.append(f"{package.name}: invocation package must be valid JSON")
+            continue
+        if not isinstance(values, dict) or values.get("kind") != "document_invocation":
+            continue
+        required = ("protocol_version", "kind", "operation_id", "run_id", "task_id", "agent_id", "workspace", "task_path", "task_sha256", "owned_paths", "forbidden_paths", "instruction")
+        missing = [key for key in required if key not in values]
+        if missing:
+            errors.append(f"{package.name}: invocation package missing {', '.join(missing)}")
+            continue
+        task_id = str(values["task_id"])
+        task = tasks.get(task_id)
+        package_claim = claim_values.get(str(values.get("claim_id"))) if values.get("claim_id") not in {None, "null", ""} else None
+        owner = package_claim.get("claimer_agent") if package_claim else (effective_owner(run_dir, task, operational=False) if task else "")
+        task_path_value = Path(str(values["task_path"])).expanduser()
+        if not task_path_value.is_absolute():
+            task_path_value = run_dir / task_path_value
+        if (
+            str(values.get("protocol_version")) != PROTOCOL_VERSION
+            or values.get("run_id") != run_id
+            or task is None
+            or values.get("agent_id") != owner
+            or (
+                values.get("workspace")
+                != (
+                    executor_values.get(str(values.get("executor_id")), {}).get("workspace")
+                    if values.get("executor_id") not in {None, "", "null"}
+                    else str(project_root)
+                )
+            )
+            or task_path_value.resolve() != task_paths.get(task_id)
+            or values.get("task_sha256") != (sha256(task_paths[task_id]) if task_id in task_paths else "")
+        ):
+            errors.append(f"{package.name}: invocation package run/task/owner/hash/workspace mismatch")
+        if package.parent.name != str(values.get("agent_id")):
+            errors.append(f"{package.name}: invocation package must be in the owner inbox")
+        if "claim_id" in values and task and task.get("assignment_mode", "fixed") == "claimable":
+            claim = claim_values.get(str(values.get("claim_id")))
+            if not claim or claim.get("task_id") != task_id or claim.get("claimer_agent") != values.get("agent_id"):
+                errors.append(f"{package.name}: invocation package claim binding mismatch")
+            elif values.get("executor_id") not in {None, "", "null"} and claim.get("executor_id") not in {None, "", "null", values.get("executor_id")}:
+                errors.append(f"{package.name}: invocation package executor does not match claim")
 
     native_binding_tasks: set[str] = set()
     native_ids: set[str] = set()

@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Mode-aware preflight result",
+  "type": "object",
+  "required": ["schema_version", "ready", "missing", "conflicts", "blocked_by", "next_action"],
+  "properties": {
+    "schema_version": {"type": "string", "const": "1.1"},
+    "run_id": {"type": ["string", "null"]},
+    "task_ids": {"type": "array", "items": {"type": "string"}},
+    "governance": {"type": ["string", "null"], "enum": ["light", "standard", "strict", null]},
+    "execution_profile": {"type": ["string", "null"], "enum": ["emergency", "fast", "normal", null]},
+    "dispatch_policy": {"type": ["string", "null"], "enum": ["central", "hybrid", "self_service", null]},
+    "ready": {"type": "boolean"},
+    "missing": {"type": "array", "items": {"type": "object"}},
+    "conflicts": {"type": "array", "items": {"type": "object"}},
+    "blocked_by": {"type": "array", "items": {"type": "object"}},
+    "blocked_tasks": {"type": "array", "items": {"type": "object"}},
+    "deferred_tasks": {"type": "array", "items": {"type": "object"}},
+    "resource_waits": {"type": "array", "items": {"type": "object"}},
+    "run_level_blockers": {"type": "array", "items": {"type": "object"}},
+    "preflight_scope": {"type": "string", "enum": ["run", "task"]},
+    "required_actions": {"type": "array", "items": {"type": "string"}},
+    "estimated_handoffs": {"type": "integer", "minimum": 0},
+    "next_action": {"type": "string"},
+    "checked_at": {"type": "string"}
+  }
+}

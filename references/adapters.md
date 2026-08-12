@@ -27,6 +27,21 @@ persist task
 → notify downstream
 ```
 
+任务池/自助派发使用受控串行顺序：
+
+```text
+persist parent-scoped task
+→ authorized publisher emits TASK_READY
+→ eligible Agent claims task under task-claim lock
+→ claimant emits TASK_DISPATCHED
+→ notify claimant runtime
+→ ACK / lease / result
+```
+
+任务 claim 会把 pooled task 的 effective Owner 绑定到 claimant；没有有效 claim 时不得写
+ACK、lease 或 result。thread claim 是另一把锁，只记录 thread、platform、session 线索和
+精确 workspace，不改变任务状态机。
+
 ## 2. Codex 原生适配器
 
 在 Codex 中发现可用线程工具后使用原生适配器。具体工具、pending worktree、cursor、
@@ -92,6 +107,9 @@ Coordinator：
 - 执行后写自己的 result。
 - 不改 `state.yaml`、其他 Agent 的文件或全局事件序号。
 - 不直接调度下游。
+- 具备 `task_publish` 时，只能在已声明父任务和冻结 scope 内发布；具备 `task_claim` 时，
+  只能抢占 eligible 的 `owner_agent: pool` 任务。两项能力都不允许跳过 Reviewer/QA、人工
+  门禁或 Release。
 
 通用智能体使用子代理时，内部透明调用仍由主智能体负责；需要独立任务、写路径、恢复或
 验收的子代理必须登记为 `document_subagent`，使用独立 inbox/outbox 和 delegation
@@ -105,7 +123,8 @@ binding。完整规则见 [document-subagent-protocol.md](document-subagent-prot
 不得修改 state.yaml、其他智能体 inbox/outbox 或未授权路径。
 ```
 
-如果没有自动执行器，必须向用户展示这条命令并把任务保持为 `dispatched` 或 `waiting_external`，不能报告为 `running` 或 `completed`。
+如果没有自动执行器，必须向用户展示这条命令并把任务保持为 `dispatched` 或 `waiting_external`，不能报告为 `running` 或 `completed`。任务池没有 claimant 时保持
+`ready`，不创建伪 Owner。
 
 ## 4. 混合模式
 

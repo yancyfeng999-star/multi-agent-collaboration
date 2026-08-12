@@ -54,6 +54,7 @@ class ProjectCheckpointRuntimeTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.project = Path(self.temp.name) / "project"
         self.project.mkdir()
+        self.governance = Path(self.temp.name) / "governance"
         subprocess.run(["git", "init", "-q", str(self.project)], check=True)
         subprocess.run(["git", "-C", str(self.project), "config", "user.email", "fixture@example.invalid"], check=True)
         subprocess.run(["git", "-C", str(self.project), "config", "user.name", "Fixture"], check=True)
@@ -63,10 +64,10 @@ class ProjectCheckpointRuntimeTests(unittest.TestCase):
         result = subprocess.run([
             sys.executable, str(SCRIPTS / "init_project_agents.py"), "--project-root", str(self.project),
             "--project-id", "fixture", "--project-name", "Fixture", "--agents", "A02-worker,A01-coordinator",
-            "--governance", "standard", "--user-confirmed",
+            "--governance", "standard", "--governance-root", str(self.governance), "--user-confirmed",
         ], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.bus = self.project / ".multi-agent-collaboration"
+        self.bus = self.governance / "projects" / "fixture"
         run = self.bus / "runs/RUN-001"
         run.mkdir(parents=True)
         (run / "manifest.yaml").write_text('run_id: "RUN-001"\n', encoding="utf-8")
@@ -118,7 +119,9 @@ class ProjectCheckpointRuntimeTests(unittest.TestCase):
         handoff_a = self.handoff("A02-worker", "HO-0001")
         self.handoff("A02-worker", "OLD", run_id="RUN-OLD")
 
-        result = load_module().create_project_checkpoint(self.project, ["RUN-001"])
+        result = load_module().create_project_checkpoint(
+            self.project, ["RUN-001"], governance_root=self.governance, project_id="fixture",
+        )
         meta = frontmatter(self.bus / result["path"])
         snapshots = meta["agent_runtime_snapshots"]
         self.assertEqual([item["agent_id"] for item in snapshots], ["A01-coordinator", "A02-worker"])
@@ -147,11 +150,15 @@ class ProjectCheckpointRuntimeTests(unittest.TestCase):
             "runtime_profile": {"native_binding_ref": "../A01-coordinator/runtime/profiles/RP-000001.json"},
         }), encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "runtime profile.*outside|runtime profile.*belong"):
-            load_module().create_project_checkpoint(self.project, ["RUN-001"])
+            load_module().create_project_checkpoint(
+                self.project, ["RUN-001"], governance_root=self.governance, project_id="fixture",
+            )
         activity.unlink()
         self.handoff("A02-worker", "BAD", declared_agent="A01-coordinator")
         with self.assertRaisesRegex(ValueError, "handoff.*agent"):
-            load_module().create_project_checkpoint(self.project, ["RUN-001"])
+            load_module().create_project_checkpoint(
+                self.project, ["RUN-001"], governance_root=self.governance, project_id="fixture",
+            )
 
     def test_rejects_runtime_profile_identity_or_record_hash_mismatch(self) -> None:
         profile, _ = self.profile("A02-worker", 1, "model", "provider")
@@ -160,7 +167,9 @@ class ProjectCheckpointRuntimeTests(unittest.TestCase):
         payload["model"] = resolved("tampered")
         profile.write_text(json.dumps(payload), encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "runtime profile hash"):
-            load_module().create_project_checkpoint(self.project, ["RUN-001"])
+            load_module().create_project_checkpoint(
+                self.project, ["RUN-001"], governance_root=self.governance, project_id="fixture",
+            )
 
     def test_schema_requires_agent_runtime_snapshot_contract(self) -> None:
         schema = json.loads((ROOT / "assets/schemas/project-checkpoint.schema.json").read_text(encoding="utf-8"))

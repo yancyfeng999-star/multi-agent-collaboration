@@ -20,6 +20,7 @@ class ProtocolV3Tests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.project = Path(self.temporary.name) / "project"
         self.project.mkdir()
+        self.governance = Path(self.temporary.name) / "governance"
         (self.project / "src").mkdir()
         (self.project / "src" / "module").mkdir()
         (self.project / "outside").mkdir()
@@ -52,6 +53,14 @@ class ProtocolV3Tests(unittest.TestCase):
             str(INIT),
             "--project-root",
             str(self.project),
+            "--coordination-mode",
+            "coordinated",
+            "--governance-root",
+            str(self.governance),
+            "--project-id",
+            "protocol-fixture",
+            "--project-name",
+            "Protocol Fixture",
             "--governance",
             governance,
             "--transport",
@@ -315,6 +324,12 @@ class ProtocolV3Tests(unittest.TestCase):
             str(INIT),
             "--project-root",
             str(self.project),
+            "--coordination-mode",
+            "coordinated",
+            "--governance-root",
+            str(self.governance),
+            "--project-id",
+            "protocol-fixture",
             "--governance",
             "light",
             "--transport",
@@ -337,6 +352,12 @@ class ProtocolV3Tests(unittest.TestCase):
             str(INIT),
             "--project-root",
             str(self.project),
+            "--coordination-mode",
+            "coordinated",
+            "--governance-root",
+            str(self.governance),
+            "--project-id",
+            "protocol-fixture",
             "--governance",
             "light",
             "--transport",
@@ -408,6 +429,12 @@ class ProtocolV3Tests(unittest.TestCase):
             str(INIT),
             "--project-root",
             str(self.project),
+            "--coordination-mode",
+            "coordinated",
+            "--governance-root",
+            str(self.governance),
+            "--project-id",
+            "protocol-fixture",
             "--governance",
             "light",
             "--transport",

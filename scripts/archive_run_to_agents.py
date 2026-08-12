@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from protocol_lib import ProtocolError, atomic_write, frontmatter, json_string_list, scalar_map, sha256
+from governance_paths import load_project_binding
 
 BRIDGE_VERSION = "1"
 
@@ -95,25 +96,43 @@ def run_inventory_hash(run_dir: Path) -> str:
     return digest_bytes(encoded.encode("utf-8"))
 
 
-def resolve_source(reference: str, run_dir: Path, project_root: Path) -> Path:
+def resolve_source(
+    reference: str,
+    run_dir: Path,
+    project_root: Path,
+    governance_project: Path,
+    *,
+    project_only: bool = False,
+) -> Path:
     path = Path(reference).expanduser()
     if not path.is_absolute():
         path = run_dir / path
     path = path.resolve()
     if not path.is_file():
         raise ProtocolError(f"referenced source does not exist: {reference}")
-    try:
-        path.relative_to(project_root)
-    except ValueError as exc:
-        raise ProtocolError(f"referenced source is outside project root: {path}") from exc
+    roots = (project_root,) if project_only else (project_root, governance_project)
+    if not any(path == root or root in path.parents for root in roots):
+        raise ProtocolError(f"referenced source is outside allowed project/governance roots: {path}")
     return path
 
 
-def source_record(kind: str, path: Path, project_root: Path) -> dict[str, str]:
+def source_relative(path: Path, project_root: Path, governance_project: Path) -> str:
+    try:
+        return "project://" + path.relative_to(project_root).as_posix()
+    except ValueError:
+        try:
+            return "governance://" + path.relative_to(governance_project).as_posix()
+        except ValueError as exc:
+            raise ProtocolError(f"source is outside bound roots: {path}") from exc
+
+
+def source_record(
+    kind: str, path: Path, project_root: Path, governance_project: Path,
+) -> dict[str, str]:
     return {
         "kind": kind,
         "source_path": str(path),
-        "source_relative_path": path.relative_to(project_root).as_posix(),
+        "source_relative_path": source_relative(path, project_root, governance_project),
         "source_sha256": sha256(path),
     }
 
@@ -207,12 +226,15 @@ def execution_evidence(
 
 def build_bridge(run_dir: Path, mapping: dict[str, str]) -> tuple[Path, dict[str, Any], list[dict[str, Any]]]:
     bus = run_dir.parent.parent.resolve()
-    project_root = bus.parent.resolve()
+    if run_dir.parent.name != "runs":
+        raise ProtocolError("run directory must be inside a governance project runs/ directory")
+    binding = load_project_binding(bus)
+    project_root = Path(binding["project_root"]).expanduser().resolve()
     manifest_path = run_dir / "manifest.yaml"
     state_path = run_dir / "state.yaml"
     team_path = bus / "TEAM.yaml"
     if not all(path.is_file() for path in (manifest_path, state_path, team_path)):
-        raise ProtocolError("run and persistent Agent store must share a valid project bus")
+        raise ProtocolError("run and persistent Agent store must share a valid governance project")
     manifest = scalar_map(manifest_path.read_text(encoding="utf-8"), source=str(manifest_path))
     state = scalar_map(state_path.read_text(encoding="utf-8"), source=str(state_path))
     run_id = manifest.get("run_id", "")
@@ -253,7 +275,7 @@ def build_bridge(run_dir: Path, mapping: dict[str, str]) -> tuple[Path, dict[str
             "forbidden_writes": json_string_list(task.get("forbidden_paths", "[]"), field="forbidden_paths", source=str(task_path)),
             "acceptance_commands": [], "expected_outputs": [],
             "created_at": task.get("created_at") or datetime.now(timezone.utc).isoformat(),
-        }, f"# Archived Run Task\n\n- Run: `{run_id}`\n- Original task: `{task_id}`\n- Source: `{task_path.relative_to(project_root).as_posix()}`\n- Source SHA-256: `{sha256(task_path)}`")
+        }, f"# Archived Run Task\n\n- Run: `{run_id}`\n- Original task: `{task_id}`\n- Source: `{source_relative(task_path, project_root, bus)}`\n- Source SHA-256: `{sha256(task_path)}`")
         outputs.append(destination_entry(target_task, task_content, task_path))
 
         results = []
@@ -268,13 +290,13 @@ def build_bridge(run_dir: Path, mapping: dict[str, str]) -> tuple[Path, dict[str
             target_result = agent / "handoffs" / f"{archived_task_id}--{attempt}.md"
             evidence_records = []
             for reference in json_string_list(values.get("verification_refs", "[]"), field="verification_refs", source=str(result_path)):
-                evidence_source = resolve_source(reference, run_dir, project_root)
+                evidence_source = resolve_source(reference, run_dir, project_root, bus)
                 evidence_target = agent / "artifacts" / f"{run_id}--{task_id}--result-evidence--{evidence_source.name}"
                 outputs.append(destination_entry(evidence_target, evidence_source.read_bytes(), evidence_source))
                 evidence_records.append({"path": evidence_target.relative_to(bus).as_posix(), "sha256": sha256(evidence_source)})
             changed_records = []
             for reference in json_string_list(values.get("changed_files", "[]"), field="changed_files", source=str(result_path)):
-                changed = resolve_source(reference, run_dir, project_root)
+                changed = resolve_source(reference, run_dir, project_root, bus, project_only=True)
                 changed_records.append({"path": changed.relative_to(project_root).as_posix(), "sha256": sha256(changed)})
             result_content = markdown_document({
                 "schema_version": "1.1", "doc_type": "handoff", "task_id": archived_task_id,
@@ -294,9 +316,9 @@ def build_bridge(run_dir: Path, mapping: dict[str, str]) -> tuple[Path, dict[str
                 "acceptance_evidence": evidence_records, "artifacts": evidence_records,
                 "risks": [] if str(values.get("risk_summary", "")).lower() in {"", "none", "null"} else [values.get("risk_summary")],
                 "unresolved": [], "rollback_note": values.get("rollback_plan", ""),
-            }, f"# Archived Run Handoff\n\n- Run: `{run_id}`\n- Original task: `{task_id}`\n- Source: `{result_path.relative_to(project_root).as_posix()}`\n- Source SHA-256: `{sha256(result_path)}`")
+            }, f"# Archived Run Handoff\n\n- Run: `{run_id}`\n- Original task: `{task_id}`\n- Source: `{source_relative(result_path, project_root, bus)}`\n- Source SHA-256: `{sha256(result_path)}`")
             outputs.append(destination_entry(target_result, result_content, result_path))
-            results.append(source_record("handoff", result_path.resolve(), project_root))
+            results.append(source_record("handoff", result_path.resolve(), project_root, bus))
             result_bindings.append({
                 **binding,
                 "result_source_path": str(result_path.resolve()),
@@ -316,7 +338,7 @@ def build_bridge(run_dir: Path, mapping: dict[str, str]) -> tuple[Path, dict[str
             evidence_id = values.get("evidence_id", evidence_path.stem)
             target_evidence = agent / "artifacts" / f"{run_id}--{task_id}--evidence--{evidence_id}{evidence_path.suffix}"
             outputs.append(destination_entry(target_evidence, evidence_path.read_bytes(), evidence_path))
-            record = source_record("evidence", evidence_path.resolve(), project_root)
+            record = source_record("evidence", evidence_path.resolve(), project_root, bus)
             evidence_entries.append(record)
             records.append(record)
             refs = json_string_list(
@@ -324,11 +346,11 @@ def build_bridge(run_dir: Path, mapping: dict[str, str]) -> tuple[Path, dict[str
             )
             hashes = json.loads(values.get("artifact_hashes", "{}"))
             for reference in refs:
-                artifact = resolve_source(reference, run_dir, project_root)
+                artifact = resolve_source(reference, run_dir, project_root, bus, project_only=True)
                 actual = sha256(artifact)
                 if hashes.get(reference) != actual:
                     raise ProtocolError(f"artifact hash mismatch: {artifact}")
-                records.append(source_record("artifact", artifact, project_root))
+                records.append(source_record("artifact", artifact, project_root, bus))
 
         for result in results:
             records.append(result)

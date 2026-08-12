@@ -8,6 +8,8 @@ import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
+from tests.governance_test_support import governance_project, governance_root
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,7 +25,10 @@ class RecordAgentActivityTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.project = Path(self.temp.name) / "project"
-        self.agent = self.project / ".multi-agent-collaboration" / "agents" / "A02-worker"
+        self.project.mkdir()
+        self.governance = governance_root(self.temp.name)
+        self.bus = governance_project(self.temp.name, self.project)
+        self.agent = self.bus / "agents" / "A02-worker"
         (self.agent / "runtime" / "profiles").mkdir(parents=True)
         self.binding = self.agent / "runtime" / "profiles" / "RP-000001.json"
         self.binding.write_text('{"runtime_profile_id":"RP-000001"}\n', encoding="utf-8")
@@ -73,7 +78,8 @@ class RecordAgentActivityTests(unittest.TestCase):
         input_path.write_text(json.dumps(payload), encoding="utf-8")
         result = subprocess.run([
             sys.executable, str(SCRIPTS / "record_agent_activity.py"),
-            "--project-root", str(self.project), "--agent-id", "A02-worker", "--input", str(input_path),
+            "--project-root", str(self.project), "--governance-root", str(self.governance),
+            "--agent-id", "A02-worker", "--input", str(input_path),
         ], capture_output=True, text=True)
         if ok and result.returncode:
             self.fail(result.stdout + result.stderr)
@@ -159,7 +165,10 @@ class RecordAgentActivityTests(unittest.TestCase):
     def test_publish_failure_rolls_back_record_index_and_pointer(self) -> None:
         import record_agent_activity as module
 
-        first = module.record_agent_activity(project_root=self.project, agent_id="A02-worker", payload=self.payload())
+        first = module.record_agent_activity(
+            project_root=self.project, governance_root=self.governance,
+            agent_id="A02-worker", payload=self.payload(),
+        )
         before = {path.relative_to(self.ledger).as_posix(): path.read_bytes() for path in self.ledger.rglob("*") if path.is_file() and path.name != ".activity.lock"}
         real_replace = module.os.replace
         calls = 0
@@ -173,7 +182,10 @@ class RecordAgentActivityTests(unittest.TestCase):
 
         with mock.patch.object(module.os, "replace", side_effect=fail_during_publish):
             with self.assertRaises(OSError):
-                module.record_agent_activity(project_root=self.project, agent_id="A02-worker", payload=self.payload(summary="second", session_id="SESSION-002"))
+                module.record_agent_activity(
+                    project_root=self.project, governance_root=self.governance,
+                    agent_id="A02-worker", payload=self.payload(summary="second", session_id="SESSION-002"),
+                )
         after = {path.relative_to(self.ledger).as_posix(): path.read_bytes() for path in self.ledger.rglob("*") if path.is_file() and path.name != ".activity.lock"}
         self.assertEqual(after, before)
         self.assertEqual(first["activity_id"], "ACTIVITY-000001")

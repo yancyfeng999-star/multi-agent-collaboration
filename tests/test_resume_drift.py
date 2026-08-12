@@ -7,6 +7,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.governance_test_support import governance_root
+
 
 SKILL = Path(__file__).resolve().parents[1]
 RESUME = SKILL / "scripts" / "resume_brief.py"
@@ -19,9 +21,11 @@ class ResumeDriftTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.project = Path(self.temp.name) / "project"
         self.project.mkdir()
+        self.governance = governance_root(self.temp.name)
         self.command(INIT, "--project-root", self.project, "--project-id", "fixture",
-                 "--project-name", "Fixture", "--agents", "A01-worker", "--user-confirmed")
-        self.bus = self.project / ".multi-agent-collaboration"
+                 "--project-name", "Fixture", "--agents", "A01-worker", "--user-confirmed",
+                 "--governance-root", self.governance)
+        self.bus = self.governance / "projects" / "fixture"
         self.agent = self.bus / "agents" / "A01-worker"
 
     def command(self, program: Path | str, *args: object, ok: bool = True) -> subprocess.CompletedProcess[str]:
@@ -43,7 +47,10 @@ class ResumeDriftTests(unittest.TestCase):
         return values
 
     def resume(self, *extra: str, ok: bool = True) -> tuple[subprocess.CompletedProcess[str], Path | None]:
-        result = self.command(RESUME, "--project-root", self.project, "--agent-id", "A01-worker", *extra, ok=ok)
+        result = self.command(
+            RESUME, "--project-root", self.project, "--agent-id", "A01-worker",
+            "--governance-root", self.governance, *extra, ok=ok,
+        )
         return result, Path(result.stdout.strip()) if result.returncode == 0 else None
 
     def write_doc(self, path: Path, **meta: object) -> None:
@@ -67,9 +74,9 @@ class ResumeDriftTests(unittest.TestCase):
         self.assertIsNotNone(output)
         assert output is not None
         text = output.read_text(encoding="utf-8")
-        self.assertIn(active.relative_to(self.project).as_posix(), text)
+        self.assertIn(f"governance://{active.relative_to(self.bus).as_posix()}", text)
         self.assertNotIn("ZZZ-old.md`\n", text)
-        self.assertIn(newest_handoff.relative_to(self.project).as_posix(), text)
+        self.assertIn(f"governance://{newest_handoff.relative_to(self.bus).as_posix()}", text)
 
     def test_run_state_selects_newest_created_active_task_when_context_has_none(self) -> None:
         runs = self.bus / "runs"
@@ -84,7 +91,10 @@ class ResumeDriftTests(unittest.TestCase):
         _, output = self.resume()
         self.assertIsNotNone(output)
         assert output is not None
-        self.assertIn(new_task.relative_to(self.project).as_posix(), output.read_text(encoding="utf-8"))
+        self.assertIn(
+            f"governance://{new_task.relative_to(self.bus).as_posix()}",
+            output.read_text(encoding="utf-8"),
+        )
 
     def test_detects_git_missing_reference_hash_and_project_path_drift(self) -> None:
         self.command("git", "init", self.project)
@@ -139,7 +149,7 @@ class ResumeDriftTests(unittest.TestCase):
         escaped = Path(self.temp.name) / "outside.md"
         result, _ = self.resume("--output", str(escaped), ok=False)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("outside project root", result.stderr)
+        self.assertIn("outside the project and governance Agent roots", result.stderr)
 
 
 if __name__ == "__main__":

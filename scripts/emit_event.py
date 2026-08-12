@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 from project_memory_lib import exclusive_lock
+from claim_lib import effective_owner
 import os
 import re
 import subprocess
@@ -100,15 +101,7 @@ def git_worktree_clean(project_root: Path) -> bool:
     )
     if result.returncode:
         return False
-    return not any(
-        line
-        for line in result.stdout.splitlines()
-        if (line[3:] if len(line) > 3 else line)
-        != ".multi-agent-collaboration"
-        and not (line[3:] if len(line) > 3 else line).startswith(
-            ".multi-agent-collaboration/"
-        )
-    )
+    return not any(result.stdout.splitlines())
 
 
 def strict_commit_error(
@@ -228,7 +221,7 @@ def expected_payload_path(
 ) -> None:
     """Fail closed when a semantic event points at the wrong document."""
 
-    owner = task["owner_agent"]
+    owner = effective_owner(run_dir, task)
     kind = EVENT_PAYLOAD_KINDS.get(event)
     if not kind:
         return
@@ -381,6 +374,9 @@ def validate_event_actor(
     to_agent: str,
     owner: str,
     task: dict[str, str],
+    *,
+    publisher_authorized: bool = False,
+    claim_authorized: bool = False,
 ) -> None:
     coordinator_events = {
         "TASK_READY",
@@ -405,9 +401,15 @@ def validate_event_actor(
         *NATIVE_EVENTS,
     }
     if event in coordinator_events and from_agent != "coordinator":
-        raise SystemExit(f"{event} must be emitted by coordinator")
+        if event == "TASK_READY" and publisher_authorized:
+            pass
+        elif event == "TASK_DISPATCHED" and (publisher_authorized or claim_authorized):
+            pass
+        else:
+            raise SystemExit(f"{event} must be emitted by coordinator")
     if event in {"TASK_READY", "TASK_DISPATCHED", "LEASE_ACQUIRED", "TASK_RESUMED"}:
-        if to_agent != owner:
+        claimable_ready = event == "TASK_READY" and task.get("assignment_mode", "fixed") == "claimable" and to_agent == "coordinator"
+        if not claimable_ready and to_agent != owner:
             raise SystemExit(f"{event} must target the task owner {owner}")
     if event == "ACK" and from_agent not in {owner, "coordinator"}:
         raise SystemExit("ACK must come from the owner or a Coordinator proxy")
@@ -504,15 +506,36 @@ def main() -> int:
     ):
         raise SystemExit("task is not bound to the run version contract")
 
-    for agent in (args.from_agent, args.to_agent, task["owner_agent"]):
+    task_owner = effective_owner(run_dir, task)
+    for agent in (args.from_agent, args.to_agent, task_owner):
+        if agent == "pool" and task.get("assignment_mode", "fixed") == "claimable":
+            continue
         if agent not in agents and agent not in {"user", "system", "external"}:
             raise SystemExit(f"unregistered agent: {agent}")
+    publisher_authorized = (
+        args.event in {"TASK_READY", "TASK_DISPATCHED"}
+        and args.from_agent != "coordinator"
+        and manifest.get("governance") != "strict"
+        and manifest.get("dispatch_policy", "central") in {"hybrid", "self_service"}
+        and args.from_agent == task.get("published_by")
+        and "task_publish" in set(agents.get(args.from_agent, {}).get("capabilities", []))
+    )
+    claim_authorized = (
+        args.event == "TASK_DISPATCHED"
+        and task.get("assignment_mode", "fixed") == "claimable"
+        and manifest.get("governance") != "strict"
+        and manifest.get("dispatch_policy", "central") in {"hybrid", "self_service"}
+        and task_owner == args.from_agent
+        and "task_claim" in set(agents.get(args.from_agent, {}).get("capabilities", []))
+    )
     validate_event_actor(
         args.event,
         args.from_agent,
         args.to_agent,
-        task["owner_agent"],
+        task_owner,
         task,
+        publisher_authorized=publisher_authorized,
+        claim_authorized=claim_authorized,
     )
 
     project_path = run_dir.parent.parent / "project.yaml"
@@ -524,7 +547,11 @@ def main() -> int:
             field="allowed_roots",
             source=str(project_path),
         )
-        owner_profile = agents[task["owner_agent"]]
+        if task.get("assignment_mode", "fixed") == "claimable" and task.get("owner_agent") == "pool":
+            eligible = json_string_list(task.get("eligible_agents", "[]"), field="eligible_agents", source=str(task_path))
+            owner_profile = agents[task_owner] if task_owner in agents else agents[eligible[0]]
+        else:
+            owner_profile = agents[task_owner]
         owned_paths = json_string_list(
             task.get("owned_paths", "[]"),
             field="owned_paths",
@@ -610,7 +637,7 @@ def main() -> int:
                 if role_value in {None, "", "null"} or role_value not in agents:
                     raise SystemExit(f"{governance} task requires registered {role}")
                 quality_agents.append(str(role_value))
-            if task["owner_agent"] in quality_agents:
+            if task_owner in quality_agents:
                 raise SystemExit(
                     f"{governance} task requires quality review independent from Owner; "
                     "Reviewer and QA may be the same agent"
@@ -734,7 +761,7 @@ def main() -> int:
             payload,
             args.task_id,
             args.from_agent,
-            task["owner_agent"],
+            task_owner,
         )
         payload_path = str(payload)
         payload_hash = sha256(payload)
@@ -897,15 +924,7 @@ def main() -> int:
             )
             if git_status.returncode:
                 raise SystemExit("strict release requires an accessible Git worktree")
-            dirty = []
-            for line in git_status.stdout.splitlines():
-                changed_path = line[3:] if len(line) > 3 else line
-                if changed_path == ".multi-agent-collaboration" or changed_path.startswith(
-                    ".multi-agent-collaboration/"
-                ):
-                    continue
-                dirty.append(line)
-            if dirty:
+            if git_status.stdout.splitlines():
                 raise SystemExit("strict release requires a clean project worktree")
         try:
             prior_records = event_records(events_dir)

@@ -19,11 +19,14 @@ class RuntimeInitializationTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.project = Path(self.temp.name) / "project"
         self.project.mkdir()
+        self.governance = Path(self.temp.name) / "governance"
+        self.bus = self.governance / "projects" / "runtime-fixture"
 
     def run_init(self, *, env: dict[str, str] | None = None, ok: bool = True) -> subprocess.CompletedProcess[str]:
         command = [
             "python3", str(INIT), "--project-root", str(self.project),
             "--project-id", "runtime-fixture", "--project-name", "Runtime Fixture",
+            "--governance-root", str(self.governance),
             "--agents", "A01-coordinator,A02-worker", "--user-confirmed",
         ]
         result = subprocess.run(command, capture_output=True, text=True, env={**os.environ, **(env or {})})
@@ -33,7 +36,7 @@ class RuntimeInitializationTests(unittest.TestCase):
 
     def test_initializes_agent_profile_and_empty_runtime_log_structure(self) -> None:
         self.run_init()
-        bus = self.project / ".multi-agent-collaboration"
+        bus = self.bus
         for agent_id in ("A01-coordinator", "A02-worker"):
             agent = bus / "agents" / agent_id
             profile = json.loads((agent / "AGENT_PROFILE.json").read_text(encoding="utf-8"))
@@ -49,7 +52,7 @@ class RuntimeInitializationTests(unittest.TestCase):
 
     def test_team_declares_policy_without_claiming_actual_runtime(self) -> None:
         self.run_init()
-        team = json.loads((self.project / ".multi-agent-collaboration" / "TEAM.yaml").read_text(encoding="utf-8"))
+        team = json.loads((self.bus / "TEAM.yaml").read_text(encoding="utf-8"))
         policy = team["declared_model_policy"]
         self.assertEqual(policy["policy_kind"], "declared_default")
         self.assertEqual(policy["preferred_models"], [])
@@ -63,9 +66,10 @@ class RuntimeInitializationTests(unittest.TestCase):
     def test_failed_transaction_leaves_no_completion_marker_and_retry_succeeds(self) -> None:
         failed = self.run_init(env={"AGENT_INIT_FAIL_AFTER": "A01-coordinator"}, ok=False)
         self.assertNotEqual(failed.returncode, 0)
-        bus = self.project / ".multi-agent-collaboration"
+        bus = self.bus
         self.assertFalse((bus / "TEAM.yaml").exists())
-        self.assertFalse(bus.exists(), "fresh initialization must publish as one transaction")
+        self.assertTrue((bus / "project-binding.yaml").is_file())
+        self.assertFalse((bus / "agents").exists(), "failed Agent initialization must not publish a partial Agent layer")
         self.assertFalse((self.project / "AGENTS.md").exists())
 
         retry = self.run_init()

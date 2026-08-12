@@ -9,6 +9,8 @@ import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
+from tests.governance_test_support import governance_project, governance_root
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -28,13 +30,17 @@ class RecordAgentRuntimeTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.project = Path(self.temp.name) / "project"
-        self.agent = self.project / ".multi-agent-collaboration" / "agents" / "A02-worker"
+        self.project.mkdir()
+        self.governance = governance_root(self.temp.name)
+        self.bus = governance_project(self.temp.name, self.project)
+        self.agent = self.bus / "agents" / "A02-worker"
         self.agent.mkdir(parents=True)
 
     def command(self, *extra: str, ok: bool = True, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
         command = [
             sys.executable, str(SCRIPTS / "record_agent_runtime.py"),
-            "--project-root", str(self.project), "--agent-id", "A02-worker",
+            "--project-root", str(self.project), "--governance-root", str(self.governance),
+            "--agent-id", "A02-worker",
             *extra,
         ]
         result = subprocess.run(command, capture_output=True, text=True, env=env)
@@ -131,7 +137,7 @@ class RecordAgentRuntimeTests(unittest.TestCase):
         import record_agent_runtime as module
 
         first = module.record_agent_runtime(
-            project_root=self.project, agent_id="A02-worker",
+            project_root=self.project, governance_root=self.governance, agent_id="A02-worker",
             observed={
                 "model": "model-one", "provider": "provider-one", "platform": "hermes",
                 "session": "session-one", "profile": "default", "workspace": str(self.project),
@@ -155,7 +161,7 @@ class RecordAgentRuntimeTests(unittest.TestCase):
         with mock.patch.object(module.os, "replace", side_effect=fail_during_publish):
             with self.assertRaises(OSError):
                 module.record_agent_runtime(
-                    project_root=self.project, agent_id="A02-worker",
+                    project_root=self.project, governance_root=self.governance, agent_id="A02-worker",
                     observed={
                         "model": "model-two", "provider": "provider-two", "platform": "hermes",
                         "session": "session-two", "profile": "default", "workspace": str(self.project),

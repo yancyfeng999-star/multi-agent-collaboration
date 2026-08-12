@@ -2,11 +2,11 @@
 
 ## 定位
 
-`agents.html` 是面向用户的 Agent 角色目录和启动入口。它帮助用户理解角色、选择角色、
+`agents.html` 是面向用户的 Agent 角色目录和 Direct 启动入口。它帮助用户理解角色、选择角色、
 填写最小项目上下文并复制启动指令；它不是 Run 控制台，不显示当前任务、运行状态、并行槽位
 或任务图，也不自动创建线程、增加 Agent 或调度下游。
 
-页面不是事实源。项目中的稳定身份、角色边界和历史仍以 `TEAM.yaml`、
+页面不是事实源，也不写入目标项目或 Governance Home。Coordinated 中的稳定身份、角色边界和历史以外部 Governance Home 的 `TEAM.yaml`、
 `agents/<agent-id>/AGENT_PROFILE.json` 与 `ROLE.md` 为准。
 使用 `init_project_agents.py` 或 `manage_project_agents.py add` 初始化时，会为 Profile 写入
 无运行状态的目录投影；项目负责人应在首次使用前把通用默认值校准为项目事实。
@@ -43,6 +43,15 @@ Profile 的 `catalog` 对象由 `assets/schemas/agent-profile.schema.json` 校�
 
 不能把当前任务、当前 Run、会话 ID、模型、Provider、lease 或临时状态写进默认角色卡。
 
+本版本的可选协同能力也写在 `capabilities` 中，而不是新增角色：
+
+- `task_publish`：在父任务和冻结 scope 内发布子任务。
+- `task_claim`：抢占 `owner_agent: pool` 且自己在 `eligible_agents` 中的任务。
+- `thread_claim`：在精确 workspace 内串行抢占一个 Codex/Hermes/document thread。
+
+这些是运行时权限，不是页面状态。`agents.html` 只解释“谁适合做什么”和人工启动入口，
+不显示某个项目当前有多少 claim、线程或活跃任务。
+
 ## 启动表单的最小上下文
 
 页面收集：
@@ -58,14 +67,22 @@ Profile 的 `catalog` 对象由 `assets/schemas/agent-profile.schema.json` 校�
 - 不自动创建线程或任务图。
 - 不自动增加 Agent。
 - 不扩大用户给出的写入范围。
+- Direct 不创建 Agent、Run、handoff、candidate、checkpoint 或任何治理资料。
 - 发布、生产、数据库、密钥、删除和回滚需要再次明确授权。
 - 结果必须报告真实修改、验证、风险和未完成项。
 
 ## 项目专属目录
 
-项目有 `TEAM.yaml` 时，可以将稳定角色字段投影到项目专属 Agent 页面。投影只包含身份、
-职责、能力和调用说明，不包含执行状态。项目没有长期 Agent 资料时，继续使用通用角色卡，
+Coordinated Governance Home 有 `TEAM.yaml` 时，可以将稳定角色字段投影到临时用户视图。投影只包含身份、
+职责、能力和调用说明，不包含执行状态。Governance Home 没有长期 Agent 资料时，继续使用通用角色卡，
 不得凭空生成项目 Agent 数量或职责。
+
+## 紧急任务路由
+
+- 单一、低风险、可逆的紧急 Bug：使用 Direct Hotfix，当前 Agent 直接读取、修复和定向验证，不创建 Run。
+- 两个以上真正独立的紧急任务：用户确认后使用 Coordinated Emergency；任务按冲突指纹分流，同一稳定角色可以在不同任务上拥有多个 Run 内短期 `executor_id`。
+- executor 不是新的长期 Agent，不进入 TEAM、Profile 或此页面；它只绑定一个 task attempt、一个 workspace 和一段 lease，结束时追加 release/expiry 记录。
+- 共享文件、数据库 schema、版本源、生产环境或 release lane 的任务必须串行；并行额度只由 Run 的 `max_parallel` 和已授权的 `executor_scale_authorized` 控制。
 
 ## 何时进入高级治理
 

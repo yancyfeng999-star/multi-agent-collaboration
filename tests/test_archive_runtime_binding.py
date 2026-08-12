@@ -7,6 +7,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.governance_test_support import governance_project, governance_root
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
@@ -25,6 +27,8 @@ class ArchiveRuntimeBindingTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.project = Path(self.temp.name) / "project"
         self.project.mkdir()
+        self.governance = governance_root(self.temp.name)
+        self.bus = governance_project(self.temp.name, self.project)
         (self.agent / "conversations").mkdir(parents=True)
         (self.agent / "runtime" / "profiles").mkdir(parents=True)
         profile = {
@@ -46,7 +50,7 @@ class ArchiveRuntimeBindingTests(unittest.TestCase):
 
     @property
     def agent(self) -> Path:
-        return self.project / ".multi-agent-collaboration" / "agents" / "A01-worker"
+        return self.bus / "agents" / "A01-worker"
 
     @property
     def mapping_path(self) -> Path:
@@ -66,7 +70,7 @@ class ArchiveRuntimeBindingTests(unittest.TestCase):
     def sync(self, *, ok: bool = True) -> subprocess.CompletedProcess[str]:
         return self.command("sync_conversation.py", "--project-root", str(self.project), "--agent-id", "A01-worker",
                             "--source-file", str(self.source), "--platform", "hermes",
-                            "--session-id", "session-1", ok=ok)
+                            "--session-id", "session-1", "--governance-root", str(self.governance), ok=ok)
 
     def mapping(self) -> dict:
         return json.loads(self.mapping_path.read_text(encoding="utf-8"))

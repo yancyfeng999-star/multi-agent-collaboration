@@ -1,6 +1,6 @@
 # Agent 生命周期与存储迁移
 
-长期 Agent 以 `TEAM.yaml` 中的 `agent_id` 为稳定身份。生命周期工具只修改项目根目录下的 `.multi-agent-collaboration/`，并与初始化/修复/迁移共用 `.init.lock`，避免并发读改写破坏 TEAM。
+长期 Agent 以 Governance Home 中 `TEAM.yaml` 的 `agent_id` 为稳定身份。生命周期工具只修改项目外 `<governance-root>/projects/<project-key>/`，并与初始化/修复/迁移共用 `.init.lock`，避免并发读改写破坏 TEAM。目标项目的构建、测试、部署和运行不读取这些资料。
 
 ## 生命周期命令
 
@@ -29,7 +29,7 @@ python3 scripts/manage_project_agents.py repair --project-root <project> --agent
 
 ## 存储 Schema 迁移
 
-当前目标存储 schema 为 `1.1`，写入 `.multi-agent-collaboration/STORAGE.json`：
+当前 Agent 内部存储 schema 为 `1.1`，写入 Governance Home 项目目录下的 `STORAGE.json`：
 
 ```bash
 # 只查看计划，不写文件、不创建备份
@@ -38,6 +38,8 @@ python3 scripts/migrate_project_agents.py --project-root <project> --dry-run
 # 执行事务迁移
 python3 scripts/migrate_project_agents.py --project-root <project>
 ```
+
+非默认治理根目录需补充 `--governance-root <path>`；有多个绑定时再补充 `--project-id <id>`。
 
 迁移行为：
 

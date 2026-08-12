@@ -8,6 +8,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.governance_test_support import governance_root
+
 
 SKILL = Path(__file__).resolve().parents[1]
 RESUME = SKILL / "scripts" / "resume_brief.py"
@@ -24,12 +26,14 @@ class RuntimeResumeDriftTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.project = Path(self.temp.name) / "project"
         self.project.mkdir()
+        self.governance = governance_root(self.temp.name)
         result = subprocess.run([
             "python3", str(INIT), "--project-root", str(self.project), "--project-id", "fixture",
             "--project-name", "Fixture", "--agents", "A01-worker", "--user-confirmed",
+            "--governance-root", str(self.governance),
         ], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.agent = self.project / ".multi-agent-collaboration" / "agents" / "A01-worker"
+        self.agent = self.governance / "projects" / "fixture" / "agents" / "A01-worker"
 
     def write_runtime(self, *, model_status: str = "known") -> Path:
         def resolved(value: str | None) -> dict:
@@ -75,6 +79,7 @@ class RuntimeResumeDriftTests(unittest.TestCase):
         clean_env = {key: value for key, value in os.environ.items() if not key.startswith(("HERMES_", "CODEX_", "CLAUDE_CODE_"))}
         result = subprocess.run([
             "python3", str(RESUME), "--project-root", str(self.project), "--agent-id", "A01-worker", "--detect-drift",
+            "--governance-root", str(self.governance),
         ], capture_output=True, text=True, env={**clean_env, **env})
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         output = Path(result.stdout.strip())

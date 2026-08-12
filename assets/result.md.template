@@ -6,6 +6,7 @@ task_id: "TASK-001"
 task_sha256: "<copy-from-task-ready-event>"
 agent_id: "<agent-id>"
 attempt_id: "ATTEMPT-001"
+executor_id: null
 status: "<completed|blocked|failed>"
 idempotency_key: "<run-id>:TASK-001:result:ATTEMPT-001:v1"
 created_at: "<iso8601>"

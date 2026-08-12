@@ -11,22 +11,34 @@
 
 ## 1. 访谈原则
 
-从用户已提供的信息中预填答案，只问缺失项。一次优先询问 1–3 个高价值问题，避免把所有字段变成问卷。
+从用户已提供的信息中预填答案，只问缺失项。一次优先询问 1–3 个高价值问题，避免把所有字段变成问卷。用户说“紧急修 Bug”时，先判断是否单一、低风险、可逆：是则直接走 Direct Hotfix，不创建治理资料；只有多个独立工作单元才提出 Coordinated Emergency。
 
 必须明确：
 
 - 项目根目录和是否允许访问；projectless 任务使用用户指定的 coordination/output 目录。
+- coordination mode：默认 `direct`；只在有多 Agent、受管交接、独立质量、恢复或审计需求时选择 `coordinated`。
 - 目标、非目标、交付物和完成定义。
 - 只读、规划、实施、测试或发布边界。
 - 禁止的路径、数据、远端和命令。
 - 必须通过的测试或人工验收。
-- `light`、`standard`、`strict`。
+- Coordinated 才需要选择 `light`、`standard`、`strict`。
+- execution profile：单一紧急 Run 用 `emergency`（任务级门禁），普通时效优先用 `fast`，完整证据链用 `normal`（Strict 不能 fast，但可以 emergency）。
+- dispatch policy：`central`、`hybrid` 或 `self_service`，以及哪些现有 Agent 具备
+  `task_publish`、`task_claim`、`thread_claim`。
 - 最大并行数量。
+- 若使用 Emergency capability pool，是否一次授权 `executor_scale_authorized`，以及每个任务的
+  `role_ref`、`required_capabilities`、workspace/worktree 和 `workspace_policy`。
 - 是否明确授权创建 Codex 线程。
 - 是否存在通用智能体，以及由谁触发它读取文档。
 - 通用智能体是否会使用子代理，以及透明子代理还是需要正式追踪的受管子代理。
 
+工作 Agent 自助发布或抢占不等于创建线程。只要使用已有 Agent/runtime，并且任务/线程 claim
+的 workspace、路径和锁已声明，就不需要为“派发方便”额外增加 Agent；首次创建新的 Codex
+线程仍需要用户明确确认。
+
 用户没有明确授权时，不创建线程、不修改项目、不运行发布。
+
+Direct 不询问与当前任务无关的完整治理问卷，不创建 Agent、Run、handoff、candidate 或 checkpoint。Coordinated 启用前必须确认 Governance Home 在项目外。
 
 ## 2. 项目扫描
 
@@ -96,6 +108,9 @@ Platform、Data、UI、Security、Operations 等能力优先附加给现有智�
 
 每个任务只有一个 Owner。把跨模块需求拆成 DAG，不用“大家一起改”。
 
+任务池可以把声明 Owner 写成 `pool`，但必须列出 `eligible_agents`、共同 writable scope 和
+claim lease。claim 前任务保持 ready，claim 后才进入 claimant 的 dispatched/running 生命周期。
+
 示例：
 
 ```text
@@ -120,6 +135,8 @@ release-readiness
 - 完成条件。
 - 失败退回对象。
 - 是否需要人工许可。
+- `logical_resources`、`environment_resources` 和 `release_lane`；这些字段决定无关同类型任务
+  能否并行，不按角色名称排全局队列。
 
 ## 5. 并行与串行
 
@@ -128,6 +145,7 @@ release-readiness
 - 不同目录的只读扫描。
 - 不重叠 owned paths 的实现。
 - 独立测试和文档任务。
+- 同一稳定 principal 的不同 executor，只要路径、逻辑资源、环境、worktree 和发布通道均无冲突。
 
 必须串行：
 
@@ -137,7 +155,11 @@ release-readiness
 - migration 与依赖其 schema 的实现。
 - release、rollback 和生产数据操作。
 
-存在不明确的重叠时，默认串行。
+存在不明确的重叠时，默认串行；缺少 writer workspace 的新任务视为共享项目根，必须先补充隔离
+worktree 才能并行。
+
+自助并不改变串行规则：任务发布、任务 claim、thread claim 各使用独立锁；同一 owned path、
+同一 logical resource 或同一 thread 仍不可并发。抢占只是选择唯一执行者，不是获得额外并发量。
 
 ## 6. 用户确认
 

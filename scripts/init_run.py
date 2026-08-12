@@ -13,6 +13,7 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
+from governance_paths import resolve_governance_project, write_project_binding
 from protocol_lib import (
     PROTOCOL_VERSION,
     ProtocolError,
@@ -45,7 +46,39 @@ def slug(value: str) -> str:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project-root", required=True)
+    parser.add_argument(
+        "--coordination-mode",
+        choices=("direct", "coordinated"),
+        default="direct",
+        help="Direct uses no persistent Run; coordinated stores governance outside the project",
+    )
+    parser.add_argument("--governance-root")
+    parser.add_argument("--project-id")
+    parser.add_argument("--project-name")
     parser.add_argument("--governance", choices=("light", "standard", "strict"), required=True)
+    parser.add_argument(
+        "--execution-profile",
+        choices=("emergency", "fast", "normal"),
+        default="normal",
+        help="Latency preference; emergency/fast never lower governance gates",
+    )
+    parser.add_argument(
+        "--dispatch-policy",
+        choices=("auto", "central", "hybrid", "self_service"),
+        default="auto",
+        help="Who may publish scoped tasks; auto selects a safe mode default",
+    )
+    parser.add_argument(
+        "--executor-policy",
+        choices=("auto", "fixed", "capability_pool"),
+        default="auto",
+        help="Whether tasks use fixed Agent identities or Run-local capability executors",
+    )
+    parser.add_argument(
+        "--executor-scale-authorized",
+        action="store_true",
+        help="Allow additional native executor instances within max_parallel",
+    )
     parser.add_argument(
         "--transport",
         choices=("codex_native", "document_bus", "hybrid"),
@@ -96,6 +129,21 @@ def main() -> int:
     project_root = Path(args.project_root).expanduser().resolve()
     if not project_root.is_dir():
         raise SystemExit(f"Project root does not exist: {project_root}")
+    if args.coordination_mode == "direct":
+        raise SystemExit(
+            "Direct mode does not create a Run; work in the current task and use init_run only with --coordination-mode coordinated"
+        )
+    project_id = args.project_id or slug(project_root.name)
+    project_name = args.project_name or project_root.name
+    try:
+        governance_paths = resolve_governance_project(
+            project_root,
+            project_id,
+            args.governance_root,
+            require_existing=False,
+        )
+    except ProtocolError as exc:
+        raise SystemExit(str(exc)) from exc
     numeric_policies = {
         "--max-parallel": args.max_parallel,
         "--max-document-delegation-depth": args.max_document_delegation_depth,
@@ -112,6 +160,17 @@ def main() -> int:
         )
     if not args.versioning_reason.strip():
         raise SystemExit("--versioning-reason must not be empty")
+    dispatch_policy = args.dispatch_policy
+    if dispatch_policy == "auto":
+        dispatch_policy = "central" if args.governance == "strict" else "hybrid"
+    if args.governance == "strict" and args.execution_profile == "fast":
+        raise SystemExit("strict governance cannot use the fast execution profile")
+    if args.governance == "strict" and dispatch_policy != "central":
+        raise SystemExit("strict governance requires central dispatch policy")
+    executor_policy = args.executor_policy
+    if executor_policy == "auto":
+        executor_policy = "capability_pool" if args.execution_profile == "emergency" else "fixed"
+    preflight_scope = "task" if args.execution_profile == "emergency" else "run"
 
     timestamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
     run_id = args.run_id or f"RUN-{timestamp}-{secrets.token_hex(3)}"
@@ -174,8 +233,11 @@ def main() -> int:
         if not version_policy_ref.is_file():
             raise SystemExit(f"version policy does not exist: {version_policy_ref}")
 
-    bus_root = project_root / ".multi-agent-collaboration"
-    bus_root.mkdir(parents=True, exist_ok=True)
+    try:
+        binding_file = write_project_binding(governance_paths, project_name)
+    except ProtocolError as exc:
+        raise SystemExit(str(exc)) from exc
+    bus_root = governance_paths.project_dir
     init_lock = exclusive_lock(bus_root / ".init.lock")
     init_lock.__enter__()
     run_dir = bus_root / "runs" / run_id
@@ -239,11 +301,16 @@ def main() -> int:
         "artifacts",
         "evidence",
         "locks",
+        "operations",
         "dead-letter",
         "delegations",
+        "claims/tasks",
+        "claims/threads",
+        "executors",
         "native/threads",
         "native/operations",
         "versions/candidates",
+        "config",
         "archive",
     )
     for directory in directories:
@@ -270,9 +337,10 @@ def main() -> int:
             "\n".join(
                 (
                     f"protocol_version: {PROTOCOL_VERSION}",
-                    f"project_id: {quote(slug(project_root.name))}",
+                    f"project_id: {quote(project_id)}",
                     f"project_root: {quote(str(project_root))}",
                     f"allowed_roots: {json.dumps([str(project_root)], ensure_ascii=False)}",
+                    f"project_binding_ref: {quote(str(binding_file))}",
                     f"created_at: {quote(created_at)}",
                     'coordinator: "coordinator"',
                     'secrets_policy: "references_only"',
@@ -296,9 +364,9 @@ def main() -> int:
                 "    delegation_depth: 0",
                 "    readable_paths:",
                 f"      - {quote(str(project_root))}",
-                "    writable_paths:",
-                f"      - {quote(str(bus_root))}",
+                "    writable_paths: []",
                 "    forbidden_paths: []",
+                '    capabilities: ["task_publish", "task_claim", "thread_claim"]',
                 "    thread_id: null",
                 '    inbox: "inbox/coordinator"',
                 '    outbox: "outbox/coordinator"',
@@ -365,6 +433,31 @@ def main() -> int:
         ),
     )
 
+    retry_policy_file = run_dir / "config" / "retry-policy.yaml"
+    atomic_write(
+        retry_policy_file,
+        "\n".join(
+            (
+                f"protocol_version: {PROTOCOL_VERSION}",
+                'kind: "retry_policy"',
+                f"run_id: {quote(run_id)}",
+                'ack_timeout_seconds: 600',
+                'progress_timeout_seconds: 900',
+                'result_timeout_seconds: 600',
+                'max_attempts_light: 2',
+                'max_attempts_standard: 2',
+                'max_attempts_strict: 1',
+                'owner_noop_action: "blocked_then_reassign"',
+                'auto_retry_light: true',
+                'auto_retry_standard: false',
+                'auto_retry_strict: false',
+                'immutable_events: true',
+                f"created_at: {quote(created_at)}",
+                "",
+            )
+        ),
+    )
+
     atomic_write(
         run_dir / "manifest.yaml",
         "\n".join(
@@ -373,7 +466,17 @@ def main() -> int:
                 f"run_id: {quote(run_id)}",
                 f"objective: {quote(args.objective)}",
                 'status: "initializing"',
+                'coordination_mode: "coordinated"',
+                'governance_storage_schema: "1.1"',
                 f"governance: {quote(args.governance)}",
+                f"execution_profile: {quote(args.execution_profile)}",
+                f"dispatch_policy: {quote(dispatch_policy)}",
+                "preflight_required: true",
+                f"preflight_scope: {quote(preflight_scope)}",
+                f"executor_policy: {quote(executor_policy)}",
+                f"executor_scale_authorized: {'true' if args.executor_scale_authorized else 'false'}",
+                'max_instances_per_role: {}',
+                'incident_ref: null',
                 f"transport: {quote(args.transport)}",
                 f"max_parallel: {args.max_parallel}",
                 f"max_document_delegation_depth: {args.max_document_delegation_depth}",
@@ -390,6 +493,11 @@ def main() -> int:
                 f"target_version: {quote(args.target_version) if args.target_version else 'null'}",
                 f"version_contract_ref: {quote(str(version_contract_file))}",
                 f"version_contract_ref_sha256: {quote(sha256(version_contract_file))}",
+                f"retry_policy_ref: {quote(str(retry_policy_file))}",
+                f"retry_policy_ref_sha256: {quote(sha256(retry_policy_file))}",
+                "scope_freeze_ref: null",
+                "scope_freeze_ref_sha256: null",
+                'self_service_parent_scope: "task_owner_or_declared_collaborator"',
                 "release_candidates: []",
                 "change_id: null",
                 "registry_ref: null",

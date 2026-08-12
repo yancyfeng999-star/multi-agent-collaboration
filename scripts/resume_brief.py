@@ -25,6 +25,8 @@ ACTIVE_TASK_STATES = {
 def parser() -> argparse.ArgumentParser:
     value = argparse.ArgumentParser(description="生成 Agent 最小恢复包")
     value.add_argument("--project-root", required=True)
+    value.add_argument("--governance-root")
+    value.add_argument("--project-id")
     value.add_argument("--agent-id", required=True)
     value.add_argument("--output")
     value.add_argument("--safe-output-dir", action="append", default=[])
@@ -327,9 +329,9 @@ def detect_drift(root: Path, checkpoint: Path | None, initial_missing: list[str]
 
 def output_path(root: Path, agent: Path, raw: str | None, safe_dirs: list[str]) -> Path:
     output = Path(raw).expanduser().resolve() if raw else agent / "conversations" / "RESUME_BRIEF.md"
-    allowed = [root, *(Path(value).expanduser().resolve() for value in safe_dirs)]
+    allowed = [root, agent, *(Path(value).expanduser().resolve() for value in safe_dirs)]
     if not any(output == directory or directory in output.parents for directory in allowed):
-        raise ProtocolError("output is outside project root; pass --safe-output-dir for an explicit safe directory")
+        raise ProtocolError("output is outside the project and governance Agent roots; pass --safe-output-dir for an explicit safe directory")
     return output
 
 
@@ -337,8 +339,12 @@ def main() -> int:
     args = parser().parse_args()
     try:
         root = project_root(args.project_root)
-        bus = bus_root(root)
-        agent = agent_root(root, args.agent_id)
+        bus = bus_root(root, governance_root=args.governance_root, project_id=args.project_id)
+        agent = agent_root(
+            root, args.agent_id,
+            governance_root=args.governance_root,
+            project_id=args.project_id,
+        )
         current = agent / "conversations" / "CURRENT_CONTEXT.md"
         current_meta = parse_frontmatter(current)
         checkpoint, missing = select_checkpoint(agent, current_meta)
@@ -349,7 +355,12 @@ def main() -> int:
             bus / "DECISIONS.md", agent / "ROLE.md", agent / "SYSTEM_PROMPT.md", current,
         ])
         must_read.extend(path for path in (checkpoint, task, handoff) if path and path not in must_read)
-        rels = [path.relative_to(root).as_posix() for path in must_read]
+        rels = []
+        for path in must_read:
+            try:
+                rels.append(path.relative_to(root).as_posix())
+            except ValueError:
+                rels.append("governance://" + path.relative_to(bus).as_posix())
         should_detect = args.detect_drift or args.fail_on_drift
         drift = detect_drift(root, checkpoint, missing) if should_detect else {"checked": False, "detected": False}
         runtime = runtime_summary(root, agent, args.agent_id)
@@ -405,7 +416,7 @@ recent_activity: {json.dumps(activity, ensure_ascii=False, sort_keys=True)}
 3. 实际文件、Git 和运行环境与检查点是否一致。
 4. 发现的漂移、冲突、风险或原文缺口。
 
-恢复不依赖平台私有会话数据库；项目内文件与真实验证结果优先。不要仅凭摘要宣称事实，不要读取或输出密钥。
+恢复不依赖平台私有会话数据库；项目外治理记录与真实验证结果优先。不要仅凭摘要宣称事实，不要读取或输出密钥。
 '''
         atomic_write(output, content)
         print(output)

@@ -40,6 +40,8 @@ PATH_FIELDS = {
 def parser() -> argparse.ArgumentParser:
     value = argparse.ArgumentParser(description="重建确定性多智能体项目索引")
     value.add_argument("--project-root", required=True)
+    value.add_argument("--governance-root")
+    value.add_argument("--project-id")
     return value
 
 
@@ -374,7 +376,7 @@ def main() -> int:
     args = parser().parse_args()
     try:
         root = project_root(args.project_root)
-        bus = bus_root(root)
+        bus = bus_root(root, governance_root=args.governance_root, project_id=args.project_id)
         with exclusive_lock(bus / ".rebuild-index.lock"):
             changed = rebuild(root, bus)
         print(f"{bus / 'INDEX.md'} ({'updated' if changed else 'unchanged'})")

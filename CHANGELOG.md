@@ -3,6 +3,105 @@
 本文件记录 Skill 协议和用户可见行为变化。项目业务版本由各 Run 的版本合同治理，不在
 这里记录。
 
+## Skill 2.1.0 — 2026-08-10
+
+### Emergency 时效与任务级治理
+
+- 新增 Direct Hotfix 与 Coordinated Emergency 路由：单一低风险紧急 Bug 不创建 Run；多个
+  独立任务才启用任务级 Preflight。
+- Emergency 的普通缺口进入 `blocked_tasks`，容量/冲突等待进入 `deferred_tasks` 或
+  `resource_waits`，只有真实 Run 级故障才进入 `run_level_blockers`；旧 Run 缺字段仍按旧的
+  run-scoped/fixed 默认行为读取。
+- 冲突模型统一覆盖 dependency、owned path、logical resource、workspace、environment 和
+  release lane；无冲突的同类型任务不再因同一角色忙碌而排队。
+
+### Run 内短期执行实例
+
+- 增加 `executor_pool.py`、Executor Binding Schema `1.0` 和 `executors/` Run-local 目录；
+  `principal_agent_id` 保持稳定权限主体，`executor_id` 只绑定一个 task attempt。
+- 同一 principal 可以在独立 worktree 上拥有多个短期 executor；同一任务、写 worktree、
+  重叠资源和发布通道仍严格串行。Native 新实例需要 `executor_scale_authorized`，释放采用
+  不可变 `executors/releases/` 记录。
+- `executor_id` 贯穿 task/thread claim、wake operation、Document invocation package 和
+  结构验证；工作 Agent 自助发布固定子任务时也使用相同 pool 和冲突校验。
+
+### 兼容与版本
+
+- Protocol v3 保持不变；Preflight Result Schema 升为 `1.1`；Governance Storage Schema 升为
+  `1.1`，兼容读取 `1.0` binding/Run。
+- 迁移工具为旧 Run 增补 `preflight_scope=run`、`executor_policy=fixed` 等可选字段，支持
+  dry-run/apply/rollback，不自动改变旧 Run 行为。
+- Skill 版本升级不修改任何目标项目业务版本；版本合同和发布通道仍由 Coordinator/现有
+  Release 能力集中治理，不新增 Version Agent 或长期角色。
+
+## Skill 2.0.0 — 2026-08-10
+
+### 开发治理侧车
+
+- 新增 `Direct` / `Coordinated` 双模式：Direct 为默认且不创建 Run、Agent、handoff、
+  candidate index 或任何治理文件；只在用户明确要求多 Agent 协作时进入 Coordinated。
+- Coordinated 的默认真源改为项目外 `~/.codex/governance/multi-agent-collaboration/`，
+  通过 Storage Schema `1.0` 的项目绑定关联真实项目根目录。
+- Agent 角色、Run、session/runtime、archive、checkpoint、handoff、bridge、PCP、
+  finalization 和 candidate index 全部外置；不再自动创建或修改目标项目 `AGENTS.md`。
+- 网站和应用的构建、启动、测试、部署与线上运行对治理资料零依赖；
+  项目内旧治理目录不再被 Git 门禁忽略。
+
+### 迁移与兼容
+
+- 新增 `migrate_governance_storage.py` 的 dry-run/apply 事务迁移：复制前生成清单与
+  SHA-256，staging 中逐文件校验后原子发布，源目录不删除、不改写。
+- 保留 Protocol v3 与旧项目内资料的只读兼容；Skill 大版本升级不改项目业务
+  版本，也不授予发布权限。
+- 用户入口 `agents.html` 仍只是静态角色目录与手动启动器，不读 Run、不显示
+  运行状态、不自动编排。
+
+## Skill 1.4.1 — 2026-08-10
+
+### 发布一致性补丁
+
+- 统一 `VERSION`、中英文 README、`SKILL.md`、Agent 入口、OpenAI metadata、架构说明和
+  测试断言为 Skill `1.4.1`。
+- Protocol 仍为 v3；本补丁不改变任务、事件、claim、恢复或项目业务版本语义。
+- 保留 1.4.0 的快车道、自助派发、串行任务/线程 claim、范围冻结、超时恢复和候选索引能力，
+  旧的固定 Owner v3 Run 继续兼容。
+
+## Skill 1.4.0 — 2026-08-10
+
+### 时效与门禁
+
+- 增加 `execution_profile: fast|normal` 与 `dispatch_policy: central|hybrid|self_service`，
+  将“减少等待”与治理强度分开记录；Strict 禁止 fast。
+- 增加 `freeze_scope.py`、`preflight_run.py` 和 `completion_preflight.py`，把范围、任务图、
+  锁、版本、结果和收口缺口汇总为一次性只读报告，不伪造事件或发布许可。
+- 增加 `recover_timeout.py` 和 run-local `retry-policy.yaml`；超时先记录 side-effect state、
+  `blocked_by` 与下一动作，禁止无证据自动重试。
+
+### 受控自助协同
+
+- 工作 Agent 获得可审计的 `task_publish` 能力，可在父任务 owned paths/冻结 scope 内发布
+  子任务；发布锁保证任务文档与事件串行落盘。
+- 增加 `assignment_mode: claimable`、`owner_agent: pool` 和 `eligible_agents`；
+  `agent_claim.py` 使用独立 task-claim 锁完成串行抢占，并把有效 Owner 接入 ACK、lease、
+  result、事件和唤醒适配器。
+- 增加独立 thread claim 锁，绑定 thread、platform、session 线索和精确 workspace；冲突
+  返回持有者和下一动作，不覆盖旧 claim。
+- Claim 持有者可用 `release-task`/`release-thread` 追加不可变让出记录；释放不会伪造完成或
+  自动重置任务，后续仍须按 timeout/recovery 处理。
+- 增加共享资源 FIFO 请求、资源步骤与 bundle lock 校验；未取得资源只阻塞对应步骤，已取得
+  lock 的步骤可以继续。
+- `central`/Strict 仍由 Coordinator 独占派发、人工许可、重试/dead-letter、完成和发布事件；
+  不为新能力增加新的 Agent。
+
+### 版本与验证
+
+- Skill 版本升级为 `1.4.0`；Protocol 版本保持 `3`，旧固定 Owner v3 Run 继续兼容。
+- 增加 preflight/candidate Schema、候选索引和旧 Run 显式迁移脚本；迁移不改项目业务版本，
+  不自动授予发布权限。
+- Native/Document wake operation 与 invocation package 统一记录 task、claim、hash、workspace
+  和真实 `message_sent`/fallback 事实；验证器同步校验 Scope Freeze、Claim、release 和操作文件。
+- 新增快车道、自助发布、任务/线程 claim、范围冻结和完成前检查回归测试。
+
 ## Skill 1.3.0 — 2026-08-09
 
 ### 用户入口与 Agent 目录

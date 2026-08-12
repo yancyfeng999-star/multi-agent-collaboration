@@ -41,6 +41,8 @@ CURRENT_SECTIONS = [
 def parser() -> argparse.ArgumentParser:
     value = argparse.ArgumentParser(description="创建不可变 Agent 上下文检查点")
     value.add_argument("--project-root", required=True)
+    value.add_argument("--governance-root")
+    value.add_argument("--project-id")
     value.add_argument("--agent-id", required=True)
     value.add_argument("--summary-file", required=True, help="包含检查点各必填栏目正文的 Markdown")
     value.add_argument("--source-archive", action="append", required=True)
@@ -132,8 +134,12 @@ def main() -> int:
     checkpoint_installed = False
     try:
         root = project_root(args.project_root)
-        bus = bus_root(root)
-        agent = agent_root(root, args.agent_id)
+        bus = bus_root(root, governance_root=args.governance_root, project_id=args.project_id)
+        agent = agent_root(
+            root, args.agent_id,
+            governance_root=args.governance_root,
+            project_id=args.project_id,
+        )
         summary_path = Path(args.summary_file).expanduser().resolve()
         if not summary_path.is_file():
             raise ProtocolError(f"summary file does not exist: {summary_path}")

@@ -28,6 +28,8 @@ SECRET_FIELD_RE = re.compile(r"(?i)(?:api[_-]?key|access[_-]?token|refresh[_-]?t
 def parser() -> argparse.ArgumentParser:
     value = argparse.ArgumentParser(description="验证项目 Agent 持久化结构")
     value.add_argument("--project-root", required=True)
+    value.add_argument("--governance-root")
+    value.add_argument("--project-id")
     return value
 
 
@@ -468,7 +470,7 @@ def validate_runtime_material(bus: Path, agent_dirs: list[Path], tasks: dict[str
             source_ref = source.get("source_ref")
             if isinstance(source_ref, str) and source_ref.startswith(".multi-agent-collaboration/"):
                 source_ref = source_ref.removeprefix(".multi-agent-collaboration/")
-            elif isinstance(source_ref, str) and not source_ref.startswith("agents/"):
+            elif isinstance(source_ref, str) and not source_ref.startswith(("agents/", "runs/", "bridges/")):
                 source_ref = f"agents/{agent.name}/{source_ref}"
             checked_ref(bus, path, source_ref, source.get("source_sha256"), "activity source", errors)
             usage = value.get("usage", {})
@@ -667,7 +669,13 @@ def validate_agent(bus: Path, agent: Path, errors: list[str]) -> dict[str, str]:
 def main() -> int:
     args = parser().parse_args(); errors: list[str] = []
     try:
-        root = project_root(args.project_root); bus = bus_root(root)
+        root = project_root(args.project_root)
+        bus = bus_root(
+            root,
+            governance_root=args.governance_root,
+            project_id=args.project_id,
+            allow_legacy=args.governance_root is None and args.project_id is None,
+        )
         for relative in REQUIRED_PROJECT_FILES:
             if not (bus / relative).is_file(): errors.append(f"missing project file: {relative}")
         declared = validate_team(bus / "TEAM.yaml", root, errors) if (bus / "TEAM.yaml").is_file() else set()

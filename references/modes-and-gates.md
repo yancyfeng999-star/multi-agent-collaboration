@@ -1,5 +1,35 @@
 # 治理模式和人工门禁
 
+## -1. Coordination mode
+
+- `direct`：默认，不创建治理资料，不要求 `governance`、`execution_profile` 或 `dispatch_policy`。
+- `coordinated`：只在需要多 Agent、交接、门禁、恢复或审计时使用，并将资料写入项目外 Governance Home。
+
+下文 Light/Standard/Strict、execution profile 和 dispatch policy 只适用于 Coordinated。Direct 仍然遵守项目自身的高风险授权和版本规则，但不因此创建 Run。
+
+## 0. 执行配置与派发策略
+
+治理模式决定证据和人工门禁；执行配置决定等待和交接策略，二者不能互相替代：
+
+| 字段 | 值 | 规则 |
+| --- | --- | --- |
+| `execution_profile` | `emergency` | Light/Standard/Strict 均可；默认任务级 Preflight、`capability_pool` 和最小 incident/scope/acceptance/rollback 输入，不降低高风险门禁 |
+| `execution_profile` | `fast` | Light/Standard；一次 dispatch preflight + 一次 completion preflight；Light 可不设 Reviewer/QA，Standard 仍需一次合并质量交接 |
+| `execution_profile` | `normal` | Standard/Strict 默认；保留完整质量、版本和收口链 |
+| `dispatch_policy` | `central` | 只有 Coordinator 可写 TASK_READY/TASK_DISPATCHED |
+| `dispatch_policy` | `hybrid` | 授权工作 Agent 可在父任务范围内发布；任务 claim 可用 |
+| `dispatch_policy` | `self_service` | 允许父任务内发布、任务池 claim 和 thread claim |
+
+`emergency` 和 `fast` 都不改变 owned/forbidden paths、secret 禁区、不可变文档、真实验证或高风险人工门禁。Emergency 只把普通缺口缩小为任务/资源步骤作用域；Strict 与 `fast` 组合直接拒绝，但允许 Strict Emergency。
+
+Light/Standard Emergency 的低风险、本地可逆任务可以在没有完整 Run 级 `scope_freeze_ref` 时先开始；任务自身的路径、能力、资源和验收仍必须可验证。Strict Emergency 仍要求 Run 级 scope freeze 及其余高风险证据。
+
+### 快车道门禁
+
+派发前运行 `preflight_run.py`，一次性列出任务图、scope freeze、活动锁、路径冲突和适用
+治理证据。完成前运行 `completion_preflight.py`，一次性列出 result、验证、Review/QA、
+commit、handoff 和候选版本缺口。两个脚本只读，不写事件、不唤醒 Agent、不授予发布许可。
+
 ## 1. Light
 
 适用：
@@ -20,6 +50,14 @@
 
 - Git commit。
 - Review 和 QA。
+
+`light + fast` 可以省略下游质量交接，但不能省略任务、事件、result、hash、范围冻结和真实
+完成检查。`standard + fast` 仍必须完成独立于 Owner 的一次 Reviewer/QA 合并质量交接，只是
+通过一次性 preflight 减少重复等待。
+
+Standard Emergency 可以把独立 Review 与 QA 合并为一个 Quality 能力；任务门禁缺口进入
+`blocked_tasks`，不阻塞无关 ready task。涉及生产、数据库、支付、权限、密钥、真实数据或
+发布的步骤仍按 resource/risk/release lane 停止并等待人工授权。
 
 ## 2. Standard
 
@@ -44,6 +82,9 @@
 - result 的 verification 必须为 passed。
 - result 必须记录 implementation commit 或明确未提交原因。
 - 风险、回滚和验证引用必须写入不可变 result/evidence。
+
+Standard 可以使用 `hybrid`/`self_service` 缩短派发等待，但工作 Agent 只能发布父任务范围内
+的子任务；Review、QA、TASK_COMPLETED 和 RELEASE_READY 仍按 Coordinator 事件门禁执行。
 
 ## 3. Strict
 
@@ -70,12 +111,12 @@
 - dispatch 前 manifest 必须有 change id，以及 registry、Git 状态、环境影响、回滚和安全
   审查的有效文件引用。
 - dispatch 时必须处于可访问、非 detached 的项目 Git worktree；manifest `git_branch`
-  必须等于当前分支，且除文档总线外的工作区必须真实干净。
+  必须等于当前分支，且工作区必须真实干净；治理资料已外置，不得作为项目 dirty 例外。
 - 风险 flag 必须映射到 task 的已批准 gate，且批准时间不晚于 `TASK_READY`。
 - completion 必须引用当前 `git_branch` 可达的真实 Git commit；result 中每个
   `changed_file` 都必须出现在该 commit，且 Strict 结果不得省略 changed files。
 - release 必须有目标环境、批准的 release gate、发布许可和干净工作区证据；验证器同时
-  实时检查除 `.multi-agent-collaboration/` 外的工作区状态。
+  实时检查完整项目工作区状态。旧 `.multi-agent-collaboration/` 若仍位于项目内，只能作为已知 legacy 资料处理，不得被新 Run 写入。
 - release 必须使用 `tracked` 项目版本治理，存在不可变 RC，最新 RC commit 与发布任务
   结果一致，且版本权威源已经写入预留目标版本。
 
@@ -106,7 +147,34 @@
 受管子代理继承当前 run 的治理模式，不能通过委派从 Strict 降为 Standard 或 Light，也
 不能继承父智能体的生产凭据和人工许可。
 
-## 5. 发布门禁
+## 5. 自助发布、任务抢占和线程抢占
+
+自助能力不是新增 Agent，也不是 Coordinator 权限下放：
+
+- `task_publish`：工作 Agent 只能以自己的父任务、父 hash、协作者声明和冻结 scope 为边界
+  发布；发布锁保证任务文档、TASK_READY 和固定 Owner 的 TASK_DISPATCHED 不被交错。
+- `task_claim`：任务必须是 `owner_agent: pool`，并列出唯一 `eligible_agents`；抢占锁保证
+  同一 task 同时只有一个未过期 claimant。claim 后有效 Owner 解析到 claimant，ACK/lease/result
+  必须写入 claimant outbox。
+- `thread_claim`：同一 thread id 使用独立锁和不可变 lease；platform、session 线索和精确
+  workspace 必须匹配，不能把一个线程同时绑定给两个 Agent。
+
+第二个 claimant 不覆盖旧 claim，而是得到 `blocked_by`、持有者和下一动作。claim 到期不等于
+任务失败；仍需检查副作用并通过 `recover_timeout.py` 决定 block、重新 claim 或人工处理。
+
+Coordinator 仍独占 Strict/central 派发、全局状态序号、人工许可、重试/dead-letter、完成和
+发布事件。
+
+### 短期执行实例
+
+`principal_agent_id` 负责稳定身份和权限，`executor_id` 负责一次 task attempt。调度器按
+`role_ref`、`required_capabilities`、runtime、workspace policy 和 Run 容量分配实例；同一
+principal 可以在不同、无冲突任务上并行。两个写实例不能共享 worktree；只读实例可以共享。
+绑定文件位于 Run `executors/`，只追加 `executors/releases/`，不改变长期 TEAM，也不计入
+页面的 Agent 数量。没有 `executor_scale_authorized` 时，Native 新实例必须返回可执行缺口，
+不能静默扩容。
+
+## 6. 发布门禁
 
 Release 只能接受：
 

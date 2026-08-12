@@ -7,6 +7,8 @@ import time
 import unittest
 from pathlib import Path
 
+from tests.governance_test_support import governance_project, governance_root
+
 
 SKILL_DIR = Path(__file__).resolve().parents[1]
 REBUILD = SKILL_DIR / "scripts" / "rebuild_index.py"
@@ -17,8 +19,9 @@ class RebuildIndexTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.project = Path(self.temporary.name) / "project"
-        self.bus = self.project / ".multi-agent-collaboration"
-        self.bus.mkdir(parents=True)
+        self.project.mkdir()
+        self.governance = governance_root(self.temporary.name)
+        self.bus = governance_project(self.temporary.name, self.project)
 
     def write_doc(self, relative: str, fields: dict[str, object], body: str = "") -> Path:
         path = self.bus / relative
@@ -32,7 +35,8 @@ class RebuildIndexTests(unittest.TestCase):
 
     def run_rebuild(self) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
-            ["python3", str(REBUILD), "--project-root", str(self.project)],
+            ["python3", str(REBUILD), "--project-root", str(self.project),
+             "--governance-root", str(self.governance)],
             text=True,
             capture_output=True,
         )

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Shared helpers for project-local persistent agent memory."""
+"""Shared helpers for persistent Agent memory in external governance storage."""
 from __future__ import annotations
 
 import hashlib
@@ -21,8 +21,9 @@ except ImportError:  # macOS/Linux
     _msvcrt = None
 
 from protocol_lib import ProtocolError, atomic_write, now_iso
+from governance_paths import discover_governance_project, resolve_governance_project
 
-BUS_DIR = ".multi-agent-collaboration"
+LEGACY_BUS_DIR = ".multi-agent-collaboration"
 AGENT_ID_RE = re.compile(r"^A\d{2}-[a-z0-9][a-z0-9-]*$")
 CHECKPOINT_RE = re.compile(r"^CP-(\d{4})$")
 _REDACTED = "[REDACTED]"
@@ -65,17 +66,50 @@ def project_root(value: str) -> Path:
     return root
 
 
-def bus_root(root: Path) -> Path:
-    bus = root / BUS_DIR
+def bus_root(
+    root: Path,
+    *,
+    governance_root: str | Path | None = None,
+    project_id: str | None = None,
+    allow_legacy: bool = False,
+) -> Path:
+    if project_id:
+        return resolve_governance_project(
+            root,
+            project_id,
+            governance_root,
+            require_existing=True,
+        ).project_dir
+    if governance_root is not None:
+        return discover_governance_project(root, governance_root).project_dir
+    external_error: ProtocolError | None = None
+    try:
+        return discover_governance_project(root).project_dir
+    except ProtocolError as exc:
+        external_error = exc
+    if not allow_legacy:
+        raise external_error
+    # Explicit read-only compatibility for Protocol v3 project-local stores.
+    bus = root / LEGACY_BUS_DIR
     if not bus.is_dir():
-        raise ProtocolError(f"persistent agent store does not exist: {bus}")
-    return bus
+        raise external_error or ProtocolError("external governance binding was not found")
+    return bus.resolve()
 
 
-def agent_root(root: Path, agent_id: str) -> Path:
+def agent_root(
+    root: Path,
+    agent_id: str,
+    *,
+    governance_root: str | Path | None = None,
+    project_id: str | None = None,
+) -> Path:
     if not AGENT_ID_RE.fullmatch(agent_id):
         raise ProtocolError(f"invalid agent id: {agent_id}")
-    agent = bus_root(root) / "agents" / agent_id
+    agent = bus_root(
+        root,
+        governance_root=governance_root,
+        project_id=project_id,
+    ) / "agents" / agent_id
     if not agent.is_dir():
         raise ProtocolError(f"agent does not exist: {agent_id}")
     return agent

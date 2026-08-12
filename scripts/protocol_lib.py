@@ -304,7 +304,7 @@ def parse_agent_profiles(text: str, *, source: str = "agents.yaml") -> dict[str,
         "current_task",
         "handoff_to",
     }
-    list_fields = {"readable_paths", "writable_paths", "forbidden_paths"}
+    list_fields = {"readable_paths", "writable_paths", "forbidden_paths", "capabilities"}
     current_list: str | None = None
     for line_number, line in enumerate(
         registry_text.splitlines(),
@@ -418,6 +418,26 @@ def parse_agent_profiles(text: str, *, source: str = "agents.yaml") -> dict[str,
                 if line.strip():
                     break
             profile[field] = items
+        capability_matches = list(
+            re.finditer(
+                r"^[ \t]+capabilities:[ \t]*(.*?)[ \t]*$",
+                block,
+                re.MULTILINE,
+            )
+        )
+        if len(capability_matches) > 1:
+            raise ProtocolError(f"{source}: duplicate capabilities for {agent_id}")
+        if capability_matches:
+            inline_value = capability_matches[0].group(1)
+            if not inline_value:
+                raise ProtocolError(f"{source}: capabilities cannot be empty for {agent_id}")
+            profile["capabilities"] = json_string_list(
+                inline_value,
+                field="capabilities",
+                source=f"{source}:{agent_id}",
+            )
+        else:
+            profile["capabilities"] = []
         missing_scalar_fields = set(scalar_profile_fields) - seen_fields
         if missing_scalar_fields:
             raise ProtocolError(

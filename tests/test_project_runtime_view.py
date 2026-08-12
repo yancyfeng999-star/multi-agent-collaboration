@@ -9,6 +9,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.governance_test_support import governance_root
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
@@ -54,6 +56,7 @@ class ProjectRuntimeViewTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.project = Path(self.temp.name) / "project"
         self.project.mkdir()
+        self.governance = governance_root(self.temp.name)
         subprocess.run(["git", "init", "-q", str(self.project)], check=True)
         subprocess.run(["git", "-C", str(self.project), "config", "user.email", "fixture@example.invalid"], check=True)
         subprocess.run(["git", "-C", str(self.project), "config", "user.name", "Fixture"], check=True)
@@ -64,9 +67,10 @@ class ProjectRuntimeViewTests(unittest.TestCase):
             sys.executable, str(SCRIPTS / "init_project_agents.py"),
             "--project-root", str(self.project), "--project-id", "fixture", "--project-name", "Fixture",
             "--agents", "A02-worker,A01-coordinator", "--governance", "standard", "--user-confirmed",
+            "--governance-root", str(self.governance),
         ], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.bus = self.project / ".multi-agent-collaboration"
+        self.bus = self.governance / "projects" / "fixture"
         run = self.bus / "runs/RUN-001"
         run.mkdir(parents=True)
         (run / "manifest.yaml").write_text('run_id: "RUN-001"\n', encoding="utf-8")
@@ -113,7 +117,9 @@ class ProjectRuntimeViewTests(unittest.TestCase):
         self.activity("A02-worker", "ACTIVITY-000002", latest, "2026-08-06T17:30:00Z", "running")
         self.activity("A02-worker", "ACTIVITY-000001", older, "2026-08-06T16:00:00Z", "completed")
 
-        load_module().create_project_checkpoint(self.project, ["RUN-001"])
+        load_module().create_project_checkpoint(
+            self.project, ["RUN-001"], governance_root=self.governance,
+        )
         context = (self.bus / "CURRENT_PROJECT_CONTEXT.md").read_text(encoding="utf-8")
 
         heading = "| Agent | Actual model (status) | Actual provider (status) | Runtime profile ID | Platform / session | 最近 activity | Activity 状态 | Agent 状态 |"

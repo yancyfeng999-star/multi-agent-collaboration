@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.1",
+  "preflight_scope": "task",
+  "blocked_tasks": [],
+  "deferred_tasks": [],
+  "resource_waits": [],
+  "run_level_blockers": [],
+  "run_id": "<run-id>",
+  "task_ids": ["TASK-001"],
+  "governance": "<light|standard|strict>",
+  "execution_profile": "<emergency|fast|normal>",
+  "dispatch_policy": "<central|hybrid|self_service>",
+  "ready": false,
+  "missing": [],
+  "conflicts": [],
+  "blocked_by": [],
+  "required_actions": ["resolve_preflight"],
+  "estimated_handoffs": 0,
+  "next_action": "resolve_preflight",
+  "checked_at": "<iso8601>"
+}

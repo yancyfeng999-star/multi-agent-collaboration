@@ -734,7 +734,7 @@
       <nav aria-label="项目链接">
         <a href="README.md">说明</a>
         <a href="SKILL.md">协议</a>
-        <span class="version">Skill 1.3.0 · Protocol v3</span>
+        <span class="version">Skill 2.1.0 · Protocol v3 · Storage Schema 1.1</span>
       </nav>
     </div>
 
@@ -742,7 +742,7 @@
       <div>
         <p class="eyebrow">Choose your specialist</p>
         <h1>认识<br><em>Agent</em>。</h1>
-        <p class="hero-copy">先选一个合适的角色，再把明确的问题交给它。这里是使用入口，不是监控台：不显示运行状态，不展示任务编排，也不替你决定要不要增加智能体。</p>
+        <p class="hero-copy">先选一个合适的角色，再把明确的问题交给它。单一低风险紧急 Bug 走 Direct Hotfix；多个独立任务再由用户选择 Coordinated Emergency。这里默认生成人工启动指令，不是监控台：不显示运行状态，不展示任务编排，也不替你增加智能体。</p>
       </div>
       <aside class="how-to" aria-label="使用方式">
         <h2>三步开始</h2>
@@ -822,8 +822,8 @@
     </dialog>
 
     <footer class="notes">
-      <p><strong>使用边界：</strong>这张页面只负责介绍 Agent 和提供启动指令。它不读取项目 Run、不显示谁正在做什么，也不自动分配任务。</p>
-      <p><strong>项目映射：</strong>具体项目中的 A01、A02 等稳定身份，以项目自己的 `TEAM.yaml` 和角色文件为准；本页是通用角色入口。</p>
+      <p><strong>使用边界：</strong>这张页面只负责介绍 Agent 和提供 Direct 启动指令。它不读取项目 Run、不显示谁正在做什么，也不自动分配任务。</p>
+      <p><strong>存储边界：</strong>页面和启动指令不写入目标项目或 Governance Home；只有用户后续明确选择 Coordinated 高级治理时，才会在项目外创建治理资料。Emergency Run 的短期 executor 只存在于该 Run，不会增加这里展示的长期角色。</p>
     </footer>
   </main>
 
@@ -840,7 +840,7 @@
         typeLabel: '基础角色',
         tone: 'coral',
         intro: '适合把一个模糊目标变成清晰的工作入口，守住范围、权限和最终交付边界。需要多 Agent 时再使用，不需要时也可以独立完成一次任务。',
-        tags: ['目标澄清', '范围边界', '版本收口', '统一入口'],
+        tags: ['目标澄清', '范围边界', '版本收口', '统一入口', '治理配置'],
         use: '目标还不够清楚，或者需要先确认项目边界、验收标准和允许修改范围。',
         avoid: '已经有明确文件、明确目标，只需要一次单点执行时。',
         prompt: '使用多智能体协同的 Coordinator 角色。先只读了解我的项目和约束，帮我明确目标、范围、验收标准和合适的 Agent 角色；不要擅自修改文件、创建线程或执行高风险操作。'
@@ -852,10 +852,10 @@
         type: 'core',
         typeLabel: '基础角色',
         tone: 'blue',
-        intro: '适合把一个边界清楚的目标落成可交付结果。它可以承载前端、后端、文档、数据等能力，不因能力名称增加新的 Agent。',
-        tags: ['实现交付', '文件修改', '问题解决', '结果说明'],
+        intro: '适合把一个边界清楚的目标落成可交付结果。它可以承载前端、后端、文档、数据等能力，不因能力名称增加新的 Agent；在受控 Run 中也可在父任务范围内发布子任务或抢占 eligible 任务。',
+        tags: ['实现交付', '文件修改', '问题解决', '结果说明', '受控发布/抢占'],
         use: '你已经知道要解决什么、允许改哪些内容，并能给出完成标准。',
-        avoid: '目标、权限或验收仍然不清楚，需要先做项目理解时。',
+        avoid: '目标、权限或验收仍然不清楚，需要先做项目理解时；或试图绕过父任务范围、Review/QA 或发布门禁时。',
         prompt: '使用多智能体协同的 Owner 角色。先读取项目内指令和目标范围，确认允许修改的文件、完成标准和验证命令；然后只处理我明确交给你的任务，最后报告修改文件、真实验证结果、风险和未完成项。'
       },
       {
@@ -963,7 +963,7 @@
         '',
         agent.prompt,
         '',
-        '这是一次用户手动启动。除非我明确授权，不要创建多个线程、自动增加 Agent、自动编排任务或执行高风险操作。'
+        '这是一次 Direct 用户手动启动。不要创建或修改项目内治理资料，不要写入 Governance Home。除非我明确授权切换到 Coordinated，不要创建多个线程、自动增加 Agent、自动编排任务或执行高风险操作。'
       ].join('\n');
     }
 

@@ -17,6 +17,8 @@ class PersistentAgentTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.project = Path(self.temp.name) / "project"
         self.project.mkdir()
+        self.governance = Path(self.temp.name) / "governance"
+        self.bus = self.governance / "projects" / "fixture"
         self.command(
             "init_project_agents.py", "--project-root", str(self.project),
             "--project-id", "fixture", "--project-name", "Fixture",
@@ -25,14 +27,17 @@ class PersistentAgentTests(unittest.TestCase):
         )
 
     def command(self, script: str, *args: str, ok: bool = True) -> subprocess.CompletedProcess[str]:
-        result = subprocess.run(["python3", str(SCRIPTS / script), *args], capture_output=True, text=True)
+        arguments = list(args)
+        if "--governance-root" not in arguments:
+            arguments.extend(["--governance-root", str(self.governance)])
+        result = subprocess.run(["python3", str(SCRIPTS / script), *arguments], capture_output=True, text=True)
         if ok and result.returncode:
             self.fail(result.stdout + result.stderr)
         return result
 
     def test_end_to_end_archive_checkpoint_index_resume(self) -> None:
-        bus = self.project / ".multi-agent-collaboration"
-        self.assertTrue((self.project / "AGENTS.md").is_file())
+        bus = self.bus
+        self.assertFalse((self.project / "AGENTS.md").exists())
         self.assertTrue((bus / "schemas" / "checkpoint.schema.json").is_file())
         self.assertTrue((bus / "agents" / "A01-coordinator" / "CHECKLIST.md").is_file())
         team = json.loads((bus / "TEAM.yaml").read_text(encoding="utf-8"))
@@ -102,7 +107,7 @@ class PersistentAgentTests(unittest.TestCase):
         return result
 
     def test_validation_rejects_invalid_team_yaml_and_tampered_checkpoint(self) -> None:
-        bus = self.project / ".multi-agent-collaboration"
+        bus = self.bus
         team_path = bus / "TEAM.yaml"
         original = team_path.read_text(encoding="utf-8")
         team_path.write_text("---\nschema_version: 1.0\n---\n# not a machine-readable registry\n", encoding="utf-8")
@@ -163,7 +168,7 @@ class PersistentAgentTests(unittest.TestCase):
     def test_partial_initialization_never_publishes_team_success_marker(self) -> None:
         partial = Path(self.temp.name) / "partial"
         partial.mkdir()
-        conflict = partial / ".multi-agent-collaboration" / "schemas"
+        conflict = self.governance / "projects" / "partial" / "schemas"
         conflict.parent.mkdir()
         conflict.write_text("blocks schema directory", encoding="utf-8")
         result = self.command(
@@ -172,11 +177,18 @@ class PersistentAgentTests(unittest.TestCase):
             "--user-confirmed", ok=False,
         )
         self.assertNotEqual(result.returncode, 0)
-        self.assertFalse((partial / ".multi-agent-collaboration/TEAM.yaml").exists())
+        self.assertFalse((self.governance / "projects/partial/TEAM.yaml").exists())
 
         legacy = Path(self.temp.name) / "legacy-partial"
-        bus = legacy / ".multi-agent-collaboration"
+        legacy.mkdir()
+        bus = self.governance / "projects" / "legacy"
         bus.mkdir(parents=True)
+        binding = {
+            "storage_schema": "1.0", "project_id": "legacy", "project_name": "Legacy",
+            "project_root": str(legacy.resolve()), "project_key": "legacy",
+            "allowed_roots": [str(legacy.resolve())], "created_at": "2026-08-10T00:00:00+00:00",
+        }
+        (bus / "project-binding.yaml").write_text(json.dumps(binding), encoding="utf-8")
         (bus / "TEAM.yaml").write_text("{}\n", encoding="utf-8")
         retry = self.command(
             "init_project_agents.py", "--project-root", str(legacy), "--project-id", "legacy",

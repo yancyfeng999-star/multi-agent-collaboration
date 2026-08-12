@@ -15,6 +15,7 @@ sys.path.insert(0, str(SCRIPTS))
 sys.path.insert(0, str(ROOT / "tests"))
 
 from test_runtime_profiles import validate  # noqa: E402
+from tests.governance_test_support import governance_project, governance_root  # noqa: E402
 
 
 def canonical(value: object) -> str:
@@ -26,7 +27,9 @@ class RuntimeMigrationTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.project = Path(self.temp.name) / "跨平台 project"
-        self.bus = self.project / ".multi-agent-collaboration"
+        self.project.mkdir()
+        self.governance = governance_root(self.temp.name)
+        self.bus = governance_project(self.temp.name, self.project)
         self.agent = self.bus / "agents" / "A02-worker"
         (self.agent / "conversations" / "archive").mkdir(parents=True)
         (self.agent / "checkpoints").mkdir()
@@ -54,7 +57,7 @@ class RuntimeMigrationTests(unittest.TestCase):
     def command(self, *extra: str, ok: bool = True, env: dict[str, str] | None = None):
         result = subprocess.run([
             sys.executable, str(SCRIPTS / "migrate_agent_runtime.py"),
-            "--project-root", str(self.project), *extra,
+            "--project-root", str(self.project), "--governance-root", str(self.governance), *extra,
         ], capture_output=True, text=True, env=env)
         if ok and result.returncode:
             self.fail(result.stdout + result.stderr)

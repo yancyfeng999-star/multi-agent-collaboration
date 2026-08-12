@@ -12,6 +12,7 @@ agents:
     writable_paths:
       - "<absolute-document-bus-root>"
     forbidden_paths: []
+    capabilities: ["task_publish", "task_claim", "thread_claim"]
     thread_id: null
     inbox: "inbox/coordinator"
     outbox: "outbox/coordinator"

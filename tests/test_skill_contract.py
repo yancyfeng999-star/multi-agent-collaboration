@@ -27,6 +27,19 @@ class SkillContractTests(unittest.TestCase):
         self.assertIn("Protocol v3 Run", text)
         self.assertIn("长期层 + Run 层", text)
 
+    def test_direct_and_coordinated_storage_boundary_is_explicit(self) -> None:
+        skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        for text in (skill, readme):
+            self.assertIn("Direct", text)
+            self.assertIn("Coordinated", text)
+            self.assertIn("Governance Home", text)
+            self.assertIn("默认不创建治理资料", text)
+            self.assertIn("不自动创建或修改目标项目的 `AGENTS.md`", text)
+            self.assertIn("网站构建、启动、测试、部署和线上运行对治理资料零依赖", text)
+        self.assertLessEqual(len(skill.splitlines()), 500)
+        self.assertNotIn("协同数据目录 | `.multi-agent-collaboration/`", readme)
+
 
 if __name__ == "__main__":
     unittest.main()
