@@ -23,6 +23,7 @@ from integration_lib import (
 )
 from integration_policy import load_integration_policy
 from evidence_layers import canonical_movement_gate, load_release_freeze
+from message_contract import compact_messages
 from project_memory_lib import exclusive_lock
 from protocol_lib import ProtocolError
 
@@ -100,6 +101,20 @@ def evaluate_candidate(
         status = "conflicted"
     else:
         status = "ready"
+    coordination_messages: list[dict[str, Any]] = []
+    if status == "ready":
+        checks = ["verification_passed"]
+        if candidate["quality_required"]:
+            checks.append("quality_passed")
+        coordination_messages = compact_messages([
+            {
+                "kind": "CANDIDATE_READY",
+                "candidate_id": candidate["candidate_id"],
+                "commit": candidate["candidate_commit"],
+                "paths": candidate["changed_paths"] or ["no_changed_paths"],
+                "checks": checks,
+            }
+        ])
     return {
         "status": status,
         "candidate_id": candidate["candidate_id"],
@@ -112,6 +127,7 @@ def evaluate_candidate(
         "candidate_reachable": False,
         "read_only": True,
         "write_performed": False,
+        "coordination_messages": coordination_messages,
     }
 
 
@@ -209,6 +225,12 @@ def integrate_candidate(
         resolved_candidate = evaluation["resolved_candidate"]
         resolved_baseline = evaluation["resolved_baseline"]
         if is_ancestor(root, resolved_candidate, target_commit):
+            message = {
+                "kind": "INTEGRATED",
+                "main_hash": target_commit,
+                "candidate_status": "already_integrated",
+                "remaining_work": [],
+            }
             return {
                 "status": "already_integrated",
                 "target": target,
@@ -217,12 +239,8 @@ def integrate_candidate(
                 "integrated_commit": target_commit,
                 "candidate_commit": candidate["candidate_commit"],
                 "candidate_reachable": True,
-                "coordination_message": {
-                    "kind": "INTEGRATED",
-                    "main_hash": target_commit,
-                    "candidate_status": "already_integrated",
-                    "remaining_work": [],
-                },
+                "coordination_message": message,
+                "coordination_messages": compact_messages([message]),
                 "write_performed": False,
             }
         if not is_ancestor(root, resolved_baseline, target_commit):
@@ -244,6 +262,12 @@ def integrate_candidate(
         reachable = is_ancestor(root, resolved_candidate, integrated)
         if not reachable:
             raise ProtocolError("integration completed without candidate reachability proof")
+        message = {
+            "kind": "INTEGRATED",
+            "main_hash": integrated,
+            "candidate_status": "integrated",
+            "remaining_work": [],
+        }
         return {
             "status": "integrated",
             "target": target,
@@ -252,12 +276,8 @@ def integrate_candidate(
             "integrated_commit": integrated,
             "candidate_commit": candidate["candidate_commit"],
             "candidate_reachable": reachable,
-            "coordination_message": {
-                "kind": "INTEGRATED",
-                "main_hash": integrated,
-                "candidate_status": "integrated",
-                "remaining_work": [],
-            },
+            "coordination_message": message,
+            "coordination_messages": compact_messages([message]),
             "write_performed": True,
         }
 

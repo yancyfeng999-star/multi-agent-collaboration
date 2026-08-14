@@ -2,6 +2,13 @@
 
 本协议只用于 Coordinated。Direct 默认不创建 Run 或任何协议文件。Coordinated Run 位于项目外 Governance Home，目标项目的构建与运行不依赖该目录。
 
+## 协同消息压缩
+
+文档总线保留 Protocol v3 事件的完整审计，同时只向其它 Agent/用户传播四类有决策价值的摘要：
+`STARTED`、`BLOCKED`、`CANDIDATE_READY`、`INTEGRATED`。普通 `PROGRESS`、命令日志和重复提醒不
+触发新的协同消息。`BLOCKED` 必须带 blocker code、观察到的证据、scope impact、安全默认动作和
+建议处置；scope impact 只能列受影响任务/候选，不得把局部冲突升级成全局停摆。
+
 ## 1. 事实来源
 
 优先级：
