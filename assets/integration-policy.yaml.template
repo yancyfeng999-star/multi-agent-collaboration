@@ -1,0 +1,10 @@
+schema_version: "1.0"
+canonical_branch: "<adapter-canonical-branch>"
+working_branch: "<adapter-working-branch>"
+candidate_submit_mode: "manual"
+candidate_submit_command: null
+candidate_complete_command: null
+high_conflict_paths: []
+version_authority: null
+release_freeze_supported: false
+integration_method: "merge_preserve_candidate"

@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Optional project integration adapter policy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "canonical_branch", "working_branch"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "canonical_branch": {"type": "string", "minLength": 1},
+    "working_branch": {"type": "string", "minLength": 1},
+    "candidate_submit_mode": {"type": "string", "enum": ["manual", "authorized_auto"], "default": "manual"},
+    "candidate_submit_command": {
+      "type": ["array", "null"],
+      "items": {"type": "string", "minLength": 1}
+    },
+    "candidate_complete_command": {
+      "type": ["array", "null"],
+      "items": {"type": "string", "minLength": 1}
+    },
+    "high_conflict_paths": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true,
+      "default": []
+    },
+    "version_authority": {"type": ["string", "null"], "minLength": 1, "default": null},
+    "release_freeze_supported": {"type": "boolean", "default": false},
+    "integration_method": {
+      "type": "string",
+      "enum": ["fast_forward_only", "merge_preserve_candidate"],
+      "default": "merge_preserve_candidate"
+    }
+  }
+}

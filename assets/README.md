@@ -48,6 +48,17 @@
 | `version-contract.yaml.template` | Coordinator 冻结的项目交付版本合同 |
 | `release-candidate.yaml.template` | 顺序递增且不可覆盖的 RC |
 
+## 项目集成适配（可选）
+
+| 模板 | 用途 |
+| --- | --- |
+| `integration-policy.yaml.template` | 由调用方提供的 canonical/working 分支、候选提交权限、冲突路径提示和冻结能力；不是项目运行时配置 |
+
+`integration-policy.yaml` 必须由项目适配层或外部 Governance Home 提供。Skill 核心不猜测
+分支名称，也不会因为模板存在就创建分支、调用命令或修改目标项目。未配置策略时，只能输出
+Direct/Reviewed 路由、候选建议和只读阻塞原因。候选命令使用 JSON argv 数组，默认提交模式是
+`manual`；只有策略明确声明 `authorized_auto` 并提供安全 argv 时，才允许后续集成器考虑自动提交。
+
 ## Agent 模板（新增）
 
 | 模板 | 用途 |
@@ -97,6 +108,7 @@
 | `schemas/preflight-result.schema.json` | dispatch/completion 只读缺口报告 Schema |
 | `schemas/executor-binding.schema.json` | Run 内 executor binding 与 worktree policy Schema |
 | `schemas/candidate-summary.schema.json` | 完成/发布整备候选索引 Schema |
+| `schemas/integration-policy.schema.json` | 可选项目集成适配策略 Schema；不包含任何具体项目、环境或 Agent 编号 |
 
 模板中的 `<placeholder>` 不是有效运行数据。不要复制模板后声称任务、审批、验证或发布已经
 发生。
