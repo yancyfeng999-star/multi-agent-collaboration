@@ -15,10 +15,12 @@ description: Use when a user wants to understand or manually start an Agent role
 
 ## 定位
 
-本 Skill 有两条路径：
+Direct 是默认路径，升级必须有结构化证据。本 Skill 使用四个协作家族：
 
 - **Direct**：默认路径。一个 Agent 在当前任务中完成明确目标，默认不创建治理资料。
+- **Reviewed**：一个 Owner 实现、一个独立 Quality 合并 Review 与 QA；只在风险或项目规则要求独立判断时启用。
 - **Coordinated**：只在确实需要多 Agent、受管交接、独立质量门禁、跨会话恢复或审计时启用，资料保存在项目外 Governance Home。
+- **Release**：只在用户明确要求真实发布或生产动作时启用；路由到 Release 不等于取得发布授权。
 
 本 Skill 是开发治理能力，不是目标网站的运行组件。网站构建、启动、测试、部署和线上运行对治理资料零依赖。不自动创建或修改目标项目的 `AGENTS.md`。
 
@@ -34,6 +36,7 @@ description: Use when a user wants to understand or manually start an Agent role
 6. 不为新功能自动增加长期 Agent。能交给同一 Agent 且权限、写入范围、独立审查不冲突的能力必须合并；在用户授权的 `max_parallel` 内，可以为不同任务建立 Run 内短期执行实例。
 7. Owner 不能审查自己的实现。Reviewer 与 QA 默认合并为一个独立 Quality 能力。
 8. 未经用户明确授权，不创建外部任务、不发布、不部署、不执行高风险操作。
+9. 项目分支、集成命令、环境和版本权威源只能来自可选 **Integration Policy**；没有策略时保持只读，不创建分支、不提交、不集成。
 
 ## 默认用户入口：Agent 目录与人工启动
 
@@ -55,12 +58,22 @@ description: Use when a user wants to understand or manually start an Agent role
 | 单一、明确、低风险任务 | Direct | 无 |
 | 单一紧急 Bug、需要立即修复 | Direct Hotfix | 无；部署前单独请求授权 |
 | 普通网站更新，一个 Owner 可完成 | Direct | 无 |
+| 一个 Owner 可实现，但风险要求独立结论 | Reviewed | 候选 + 一份 Quality 结论 |
 | 多个独立调查，结果可由当前任务收集 | Direct + 临时子 Agent | 不建长期 Agent 层 |
 | 需要多 Agent 并行写入、ACK/lease、锁、交接或独立质量门禁 | Coordinated + Protocol v3 Run | Governance Home 内 Run |
 | 多天、稳定身份、跨会话恢复 | Coordinated + 长期 Agent 层 | Governance Home 内 Agents |
 | 长期项目的正式执行波次 | 长期层 + Run 层 | 两者同属一个外部治理项目 |
 | 生产、数据库、资金、权限、删除、发布 | Coordinated + Strict | 正式证据与人工门禁 |
 | 多个相互独立的紧急 Bug | Coordinated Emergency | 任务级 Preflight、短期执行实例和冲突指纹 |
+| 用户明确要求真实发布或生产动作 | Release | 精确 canonical commit、授权、回滚和环境证据 |
+
+先运行只读路由器可得到 `mode`、升级理由、最小角色和持久化级别：
+
+```bash
+python3 <skill-dir>/scripts/mode_router.py --independent-writers 1
+```
+
+代码量、文件数、“全部修复”或历史上曾使用 Run 都不是升级理由。
 
 事实分工：
 
@@ -122,7 +135,7 @@ python3 <skill-dir>/scripts/init_project_agents.py \
   --governance-root "<governance-home>" \
   --project-id "<project-id>" \
   --project-name "<project-name>" \
-  --agents "A01-coordinator,A02-owner,A03-quality" \
+  --agents "coordinator,owner,quality" \
   --governance standard \
   --user-confirmed
 ```

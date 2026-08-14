@@ -40,6 +40,19 @@ class SkillContractTests(unittest.TestCase):
         self.assertLessEqual(len(skill.splitlines()), 500)
         self.assertNotIn("协同数据目录 | `.multi-agent-collaboration/`", readme)
 
+    def test_generic_router_requires_evidence_to_upgrade_direct(self) -> None:
+        skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        modes = (ROOT / "references" / "modes-and-gates.md").read_text(encoding="utf-8")
+        catalog = (ROOT / "references" / "agent-catalog.md").read_text(encoding="utf-8")
+        for text in (skill, modes):
+            self.assertIn("Direct 是默认路径", text)
+            self.assertIn("升级必须有结构化证据", text)
+            self.assertIn("Reviewed", text)
+            self.assertIn("Integration Policy", text)
+        self.assertIn("Integration Owner", catalog)
+        self.assertIn("不新增长期角色", catalog)
+        self.assertNotIn("A12", skill)
+
 
 if __name__ == "__main__":
     unittest.main()
