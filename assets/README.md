@@ -47,6 +47,7 @@
 | --- | --- |
 | `version-contract.yaml.template` | Coordinator 冻结的项目交付版本合同 |
 | `release-candidate.yaml.template` | 顺序递增且不可覆盖的 RC |
+| `integration-candidate.json.template` | 独立 Agent 交付的 Git 候选、验证、冲突资源和质量状态 |
 
 ## 项目集成适配（可选）
 
@@ -109,6 +110,7 @@ Direct/Reviewed 路由、候选建议和只读阻塞原因。候选命令使用 
 | `schemas/executor-binding.schema.json` | Run 内 executor binding 与 worktree policy Schema |
 | `schemas/candidate-summary.schema.json` | 完成/发布整备候选索引 Schema |
 | `schemas/integration-policy.schema.json` | 可选项目集成适配策略 Schema；不包含任何具体项目、环境或 Agent 编号 |
+| `schemas/integration-candidate.schema.json` | Git 候选和验证证据 Schema；集成前只读评估，集成后保留 candidate commit 可达性 |
 
 模板中的 `<placeholder>` 不是有效运行数据。不要复制模板后声称任务、审批、验证或发布已经
 发生。

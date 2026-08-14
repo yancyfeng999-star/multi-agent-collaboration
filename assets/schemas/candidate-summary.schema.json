@@ -8,7 +8,33 @@
     "run_id": {"type": "string"},
     "governance": {"type": "string"},
     "versioning_mode": {"type": "string"},
-    "release_candidates": {"type": "array", "items": {"type": "object"}},
+    "release_candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "candidate_id": {"type": "string"},
+          "baseline_commit": {"type": "string"},
+          "candidate_commit": {"type": "string"},
+          "changed_paths": {"type": "array", "items": {"type": "string"}},
+          "integration_status": {"type": "string", "enum": ["ready", "deferred", "conflicted", "blocked", "integrated"]}
+        }
+      }
+    },
+    "integration_candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["candidate_id", "baseline_commit", "candidate_commit", "changed_paths"],
+        "properties": {
+          "candidate_id": {"type": "string"},
+          "baseline_commit": {"type": "string"},
+          "candidate_commit": {"type": "string"},
+          "changed_paths": {"type": "array", "items": {"type": "string"}},
+          "integration_status": {"type": "string", "enum": ["ready", "deferred", "conflicted", "blocked", "integrated"]}
+        }
+      }
+    },
     "release_authority": {"type": "string", "const": "project_release_adapter"}
   }
 }

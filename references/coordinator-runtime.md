@@ -87,3 +87,32 @@ real owner failure/side-effect record exists. `fast` does not bypass this rule.
 - Active/malformed locks fail closed; expired locks do not block a wave.
 - External execution success means the configured command exited zero; document fallback means only that a package was durably written.
 - No default daemon, busy polling, fabricated ACK, lease, result, or wake state.
+
+## Candidate and serial integration lane
+
+独立 Agent 可以在各自工作区形成候选，不必唤醒 Coordinator 才能开始工作。候选 JSON 必须记录
+baseline/candidate commit、实际 changed paths、验证结果、依赖、逻辑资源、workspace、环境资源、
+版本权威引用、migration order 和 release lane。`integration_lane.py evaluate` 只读校验 Git 事实，
+并且只把有真实交集的候选标为 `conflicted`；无交集的候选可以同时保持 `ready`。
+
+```bash
+python3 scripts/integration_lane.py evaluate \
+  --project-root "<project-root>" \
+  --policy "<external-policy>" \
+  --candidate "<candidate-json>" \
+  --against-candidate "<other-candidate-json>"
+```
+
+写入只能由一个串行 Integration Lane 完成，并且要求策略存在、当前工作区干净、目标分支没有
+被其它 worktree 检出、用户明确确认、候选基线仍与目标兼容、`git merge-tree` 预检通过。默认
+集成方法会用 fast-forward 或 merge 保留 candidate commit 的可达性；`fast_forward_only` 只接受
+目标是 candidate 的祖先。任何失败都停止当前候选，不会 reset、clean、force 或移动无关候选。
+
+```bash
+python3 scripts/integration_lane.py integrate \
+  --project-root "<project-root>" \
+  --policy "<external-policy>" \
+  --candidate "<candidate-json>" \
+  --target working \
+  --user-confirmed
+```
