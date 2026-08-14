@@ -49,3 +49,6 @@ Finalization fail-closed，直到：所有 Run 已完成/归档且已 Bridge；�
 `--dry-run` 执行所有门禁但不写入。`.project-finalization.lock` 串行写入。完整已有 bundle 幂等返回；部分 bundle、不同 Run 集合或任意 source hash 漂移都拒绝覆盖。
 
 Finalization 记录残余风险和审批，不默认接受风险，不授予项目发布权限。
+
+临时 worktree 的删除独立于项目 finalization。先执行只读 audit 并保存结果，再由用户确认 cleanup；
+dirty、冲突、活动进程、活动 freeze/release、未保存 candidate commit 或未知 worktree 均不得收口。

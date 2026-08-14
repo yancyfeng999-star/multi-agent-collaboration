@@ -12,6 +12,12 @@ Direct 默认不创建治理资料。Coordinated 将所有 Agent、Run、handoff
 
 网站构建、启动、测试、部署和线上运行不得读取 Governance Home。Skill 不自动创建或修改目标项目 `AGENTS.md`。
 
+临时 worktree 也属于开发治理层，不是项目运行依赖。收口前使用
+`finalize_worktree.py audit` 只读检查：路径由同一 Git common directory 注册、不是项目根/home/根目录或
+symlink 逃逸、工作区干净、没有 `MERGE_HEAD`、没有活动进程或发布/冻结占用，且 candidate commit 已由其它
+Git ref 保存。任何一项无法证明都保持 blocked；cleanup 只在用户明确确认后执行普通
+`git worktree remove`，不使用 `--force`、reset、clean 或删除 branch/ref。
+
 ## 2. 项目绑定
 
 ```text
