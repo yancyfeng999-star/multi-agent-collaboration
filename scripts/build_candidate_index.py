@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from preflight_lib import _load_context, _latest_result, run_completion_preflight
+from evidence_layers import build_evidence_layers
 from protocol_lib import json_string_list, sha256
 
 
@@ -51,6 +52,12 @@ def build_candidate_index(run_dir_value: str | Path, task_ids: list[str] | None 
                 "target_environment": manifest.get("release_environment"),
                 "blocked_reason": blocked or None,
                 "task_sha256": sha256(pair[0]),
+                "candidate_id": task_id,
+                "candidate_commit": result.get("implementation_commit"),
+                "evidence_layers": build_evidence_layers(
+                    task_id,
+                    result.get("implementation_commit"),
+                ),
             }
         )
     return {

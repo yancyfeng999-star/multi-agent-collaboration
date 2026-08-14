@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -19,11 +18,11 @@ from integration_lib import (
     git_output,
     is_ancestor,
     load_candidate,
-    read_freeze,
     resolve_commit,
     worktree_clean,
 )
 from integration_policy import load_integration_policy
+from evidence_layers import canonical_movement_gate, load_release_freeze
 from project_memory_lib import exclusive_lock
 from protocol_lib import ProtocolError
 
@@ -124,13 +123,16 @@ def _target_branch(policy: dict[str, Any], target: str) -> str:
     raise ProtocolError("target must be working or canonical")
 
 
-def _ensure_freeze_allows(freeze_path: str | Path | None, target: str, branch: str) -> None:
-    freeze = read_freeze(freeze_path)
-    if not freeze or not bool(freeze.get("active", False)):
+def _ensure_freeze_allows(root: Path, freeze_path: str | Path | None, target: str, branch: str) -> None:
+    if freeze_path is None:
         return
-    frozen_branch = freeze.get("canonical_branch") or freeze.get("branch")
-    if target == "canonical" and (frozen_branch in {None, branch}):
-        raise ProtocolError("release freeze is active; canonical branch movement is blocked")
+    freeze = load_release_freeze(freeze_path, root)
+    if target != "canonical":
+        return
+    current_commit = branch_commit(root, branch)
+    gate = canonical_movement_gate(freeze, branch, current_commit)
+    if not gate["allowed"]:
+        raise ProtocolError("canonical movement blocked by release freeze: " + ", ".join(gate["blockers"]))
 
 
 def _merge_tree(root: Path, target_commit: str, candidate_commit: str) -> str:
@@ -181,7 +183,7 @@ def integrate_candidate(
     policy = load_integration_policy(policy_path, root)
     candidate = _candidate_value(candidate_value)
     branch = _target_branch(policy, target)
-    _ensure_freeze_allows(release_freeze_path, target, branch)
+    _ensure_freeze_allows(root, release_freeze_path, target, branch)
     if not worktree_clean(root):
         raise ProtocolError("integration requires a clean current worktree")
     if branch_checked_out(root, branch):

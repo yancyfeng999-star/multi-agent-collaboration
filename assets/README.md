@@ -30,6 +30,7 @@
 | `config/retry-policy.yaml` | fast/normal 的超时、重试、side-effect 和不可变事件策略 |
 | `dead-letter.yaml.template` | 重试耗尽后的失败记录 |
 | `evidence.yaml.template` | Review、QA、安全、发布或验证证据 |
+| `release-freeze.yaml.template` | canonical 分支冻结的精确 commit、范围、原因和过期时间 |
 | `human-gate.yaml.template` | 用户批准、拒绝或待决门禁 |
 
 ## 原生与子代理绑定
@@ -111,6 +112,8 @@ Direct/Reviewed 路由、候选建议和只读阻塞原因。候选命令使用 
 | `schemas/candidate-summary.schema.json` | 完成/发布整备候选索引 Schema |
 | `schemas/integration-policy.schema.json` | 可选项目集成适配策略 Schema；不包含任何具体项目、环境或 Agent 编号 |
 | `schemas/integration-candidate.schema.json` | Git 候选和验证证据 Schema；集成前只读评估，集成后保留 candidate commit 可达性 |
+| `schemas/release-freeze.schema.json` | 通用 canonical movement freeze Schema，不绑定项目环境或发布平台 |
+| `schemas/evidence-layers.schema.json` | local/candidate/quality/canonical/deployments/external acceptance 分层证据 Schema |
 
 模板中的 `<placeholder>` 不是有效运行数据。不要复制模板后声称任务、审批、验证或发布已经
 发生。
