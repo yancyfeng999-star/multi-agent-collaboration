@@ -1,0 +1,52 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Generic candidate evidence layers",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "candidate_id", "candidate_commit", "local", "candidate", "quality", "canonical", "deployments", "external_acceptance"],
+  "properties": {
+    "schema_version": {"type": "string", "const": "1.0"},
+    "candidate_id": {"type": "string", "minLength": 1},
+    "candidate_commit": {"type": ["string", "null"], "pattern": "^[0-9a-fA-F]{7,64}$"},
+    "local": {"$ref": "#/$defs/layer"},
+    "candidate": {"$ref": "#/$defs/layer"},
+    "quality": {"$ref": "#/$defs/layer"},
+    "canonical": {"$ref": "#/$defs/layer"},
+    "deployments": {"type": "array", "items": {"$ref": "#/$defs/deployment"}},
+    "external_acceptance": {"type": "array", "items": {"$ref": "#/$defs/acceptance"}}
+  },
+  "$defs": {
+    "layer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "commit", "evidence_refs"],
+      "properties": {
+        "status": {"type": "string", "enum": ["verified", "not_verified", "blocked_unknown", "failed", "not_applicable"]},
+        "commit": {"type": ["string", "null"]},
+        "evidence_refs": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true}
+      }
+    },
+    "deployment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["environment", "status"],
+      "properties": {
+        "environment": {"type": "string", "minLength": 1},
+        "status": {"type": "string", "enum": ["verified", "not_verified", "blocked_unknown", "failed", "not_applicable"]},
+        "commit": {"type": "string", "pattern": "^[0-9a-fA-F]{7,64}$"},
+        "evidence_ref": {"type": "string", "minLength": 1}
+      }
+    },
+    "acceptance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["acceptor", "status"],
+      "properties": {
+        "acceptor": {"type": "string", "minLength": 1},
+        "status": {"type": "string", "enum": ["verified", "not_verified", "blocked_unknown", "failed", "not_applicable"]},
+        "commit": {"type": "string", "pattern": "^[0-9a-fA-F]{7,64}$"},
+        "evidence_ref": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

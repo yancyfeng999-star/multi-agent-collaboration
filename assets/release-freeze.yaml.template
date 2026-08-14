@@ -1,0 +1,9 @@
+schema_version: "1.0"
+freeze_id: "<freeze-id>"
+active: true
+canonical_branch: "<adapter-canonical-branch>"
+canonical_commit: "<40-hex-canonical-commit>"
+scope_paths: ["<relative/path>"]
+reason: "<why canonical movement is frozen>"
+created_at: "<iso-8601-with-timezone>"
+expires_at: "<iso-8601-with-timezone>"

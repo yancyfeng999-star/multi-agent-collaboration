@@ -3,6 +3,22 @@
 本文件记录 Skill 协议和用户可见行为变化。项目业务版本由各 Run 的版本合同治理，不在
 这里记录。
 
+## Skill 2.2.0 — 2026-08-14
+
+### 通用集成治理与时效优化
+
+- 新增证据化 `mode_router.py`：Direct 是默认路径，只有多 writer、独立质量、跨会话或真实发布事实才升级到 Reviewed、Coordinated 或 Release；紧急单点 Bug 仍走 Direct Hotfix。
+- 新增可选 `integration-policy.yaml` 适配层：canonical/working 分支、版本权威源、候选提交命令和环境全部由项目提供，核心不硬编码分支、项目或 Provider；默认 `manual`，缺失策略保持只读。
+- 新增 `integration-candidate.json` 和 `integration_lane.py`：独立候选按 changed paths、依赖、逻辑/环境资源、workspace、version source、migration order 和 release lane 精确冲突；无交集候选可并行评估，唯一 Integration Lane 串行集成并保留 candidate commit 可达性。
+- 新增 Release Freeze 和六层证据：`local`、`candidate`、`quality`、`canonical`、`deployments`、`external_acceptance`。Freeze 只阻止 canonical 移动，缺失证据统一 `not_verified`，不把部署推断为外部验收。
+- 新增安全 `finalize_worktree.py`：审计注册关系、clean、MERGE_HEAD、活动进程、freeze/release 占用和 candidate ref；用户确认后才普通移除，不使用 reset/clean/force。
+- 新增 `message_contract.py`：只传播 `STARTED`、`BLOCKED`、`CANDIDATE_READY`、`INTEGRATED` 四类结构化摘要，普通进度不触发额外唤醒；工作 Agent 仍可在父任务范围内 self-service 发布、claim 任务或线程。
+
+### 边界与兼容
+
+- Protocol v3 和 Governance Storage Schema 1.1 保持兼容；本版本只新增可选 Schema、只读分析和显式确认的集成能力。
+- Skill 版本升级不修改目标项目业务版本，不自动安装、不推送、不发布，不新增长期 Agent。
+
 ## Skill 2.1.0 — 2026-08-10
 
 ### Emergency 时效与任务级治理

@@ -39,6 +39,12 @@
 | `recover_timeout.py` | 记录 ACK/lease 超时恢复决策，避免无证据自动重投 |
 | `resource_queue.py` | 为共享资源写 FIFO 请求，避免多个 Agent 同时争用高冲突资源 |
 | `build_candidate_index.py` | 只读汇总完成/发布整备候选的版本、commit 和证据事实 |
+| `integration_policy.py` | 只读加载并校验项目可选的集成适配策略；缺失策略保持只读，不创建分支或调用命令 |
+| `integration_lane.py` | 只读评估候选并在显式确认、单一锁和 Git 预检下串行集成一个候选 |
+| `integration_lib.py` | 候选合同、Git commit/diff、资源冲突和 release freeze 事实的共享只读库 |
+| `evidence_layers.py` | 只读校验 canonical freeze，生成缺失即 `not_verified` 的通用证据分层 |
+| `finalize_worktree.py` | 审计并在显式确认下安全移除已注册、干净且候选 commit 有其它 ref 保存的临时 worktree |
+| `message_contract.py` | 校验并压缩 STARTED/BLOCKED/CANDIDATE_READY/INTEGRATED 摘要，不改变 Protocol v3 事件 |
 | `migrate_run_optimization.py` | 为旧 Run 增补执行 profile、任务级 Preflight、executor policy 和 retry policy，支持 dry-run/apply/rollback |
 | `wake_agent.py` | 验证身份/会话后调用适配器，失败时安全回退 document bus |
 | `runtime_metadata.py` | 按安全来源优先级探测 actual runtime metadata，并处理未知与冲突 |
@@ -180,6 +186,10 @@ python3 scripts/agent_claim.py --help
 python3 scripts/recover_timeout.py --help
 python3 scripts/resource_queue.py --help
 python3 scripts/build_candidate_index.py --help
+python3 scripts/integration_policy.py --help
+python3 scripts/integration_lane.py --help
+python3 scripts/evidence_layers.py --help
+python3 scripts/finalize_worktree.py --help
 python3 scripts/migrate_run_optimization.py --help
 python3 scripts/wake_agent.py --help
 python3 scripts/runtime_metadata.py --help

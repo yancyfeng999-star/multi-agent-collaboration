@@ -50,9 +50,13 @@ class AgentCatalogTests(unittest.TestCase):
             self.assertIn("Protocol 版本", text)
             self.assertIn("项目业务版本", text)
         self.assertIn("唯一版本权威源", self.skill)
-        self.assertIn("2.1.0", self.readme)
+        self.assertIn("2.2.0", self.readme)
+        self.assertIn("integration-policy.yaml", self.readme)
+        self.assertIn("CANDIDATE_READY", self.readme)
         self.assertIn("Direct Hotfix", self.readme)
         self.assertIn("executor_id", self.skill)
+        for role_id in ("coordinator", "owner", "quality", "release"):
+            self.assertIn(f"id: '{role_id}'", self.html)
 
 
 if __name__ == "__main__":

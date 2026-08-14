@@ -2,8 +2,16 @@
 
 ## -1. Coordination mode
 
-- `direct`：默认，不创建治理资料，不要求 `governance`、`execution_profile` 或 `dispatch_policy`。
-- `coordinated`：只在需要多 Agent、交接、门禁、恢复或审计时使用，并将资料写入项目外 Governance Home。
+Direct 是默认路径，升级必须有结构化证据。模式路由只消费 writer 数量、独立质量、跨会话、
+紧急和真实发布事实；代码行数、文件数、产品名称或历史角色数量不能触发升级。
+
+- **Direct**（`direct`）：默认，不创建治理资料，不要求 `governance`、`execution_profile` 或 `dispatch_policy`。
+- **Reviewed**（`reviewed`）：一个 Owner 加一个独立 Quality；不建立完整 Run，除非还存在并行 writer、跨会话或审计要求。
+- **Coordinated**（`coordinated`）：只在需要多 Agent、交接、门禁、恢复或审计时使用，并将资料写入项目外 Governance Home。
+- **Release**（`release`）：只在用户明确要求真实发布或生产动作时选择；模式判断不授予发布许可。
+
+项目的 canonical/working branch、候选命令、环境和版本权威源由可选 Integration Policy 提供。
+没有 Integration Policy 时，Skill 保持只读并输出具体缺口。
 
 下文 Light/Standard/Strict、execution profile 和 dispatch policy 只适用于 Coordinated。Direct 仍然遵守项目自身的高风险授权和版本规则，但不因此创建 Run。
 

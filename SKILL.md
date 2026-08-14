@@ -8,17 +8,19 @@ description: Use when a user wants to understand or manually start an Agent role
 - 中文名称：多智能体协同
 - 英文名称：Multi-Agent Collaboration
 - Skill ID：`multi-agent-collaboration`
-- Skill 版本：`2.1.0`（唯一版本权威源：`VERSION`）
+- Skill 版本：`2.2.0`（唯一版本权威源：`VERSION`）
 - Protocol 版本：`3`
 - Governance Storage Schema：`1.1`（兼容读取 `1.0`）
 - 调用：`$multi-agent-collaboration`
 
 ## 定位
 
-本 Skill 有两条路径：
+Direct 是默认路径，升级必须有结构化证据。本 Skill 使用四个协作家族：
 
 - **Direct**：默认路径。一个 Agent 在当前任务中完成明确目标，默认不创建治理资料。
+- **Reviewed**：一个 Owner 实现、一个独立 Quality 合并 Review 与 QA；只在风险或项目规则要求独立判断时启用。
 - **Coordinated**：只在确实需要多 Agent、受管交接、独立质量门禁、跨会话恢复或审计时启用，资料保存在项目外 Governance Home。
+- **Release**：只在用户明确要求真实发布或生产动作时启用；路由到 Release 不等于取得发布授权。
 
 本 Skill 是开发治理能力，不是目标网站的运行组件。网站构建、启动、测试、部署和线上运行对治理资料零依赖。不自动创建或修改目标项目的 `AGENTS.md`。
 
@@ -34,6 +36,9 @@ description: Use when a user wants to understand or manually start an Agent role
 6. 不为新功能自动增加长期 Agent。能交给同一 Agent 且权限、写入范围、独立审查不冲突的能力必须合并；在用户授权的 `max_parallel` 内，可以为不同任务建立 Run 内短期执行实例。
 7. Owner 不能审查自己的实现。Reviewer 与 QA 默认合并为一个独立 Quality 能力。
 8. 未经用户明确授权，不创建外部任务、不发布、不部署、不执行高风险操作。
+9. 项目分支、集成命令、环境和版本权威源只能来自可选 **Integration Policy**；没有策略时保持只读，不创建分支、不提交、不集成。
+
+10. 候选、冻结、证据和 worktree 收口属于开发治理层；它们只能在用户选择高级治理后启用，不是项目网站、应用或运行时依赖。
 
 ## 默认用户入口：Agent 目录与人工启动
 
@@ -55,12 +60,22 @@ description: Use when a user wants to understand or manually start an Agent role
 | 单一、明确、低风险任务 | Direct | 无 |
 | 单一紧急 Bug、需要立即修复 | Direct Hotfix | 无；部署前单独请求授权 |
 | 普通网站更新，一个 Owner 可完成 | Direct | 无 |
+| 一个 Owner 可实现，但风险要求独立结论 | Reviewed | 候选 + 一份 Quality 结论 |
 | 多个独立调查，结果可由当前任务收集 | Direct + 临时子 Agent | 不建长期 Agent 层 |
 | 需要多 Agent 并行写入、ACK/lease、锁、交接或独立质量门禁 | Coordinated + Protocol v3 Run | Governance Home 内 Run |
 | 多天、稳定身份、跨会话恢复 | Coordinated + 长期 Agent 层 | Governance Home 内 Agents |
 | 长期项目的正式执行波次 | 长期层 + Run 层 | 两者同属一个外部治理项目 |
 | 生产、数据库、资金、权限、删除、发布 | Coordinated + Strict | 正式证据与人工门禁 |
 | 多个相互独立的紧急 Bug | Coordinated Emergency | 任务级 Preflight、短期执行实例和冲突指纹 |
+| 用户明确要求真实发布或生产动作 | Release | 精确 canonical commit、授权、回滚和环境证据 |
+
+先运行只读路由器可得到 `mode`、升级理由、最小角色和持久化级别：
+
+```bash
+python3 <skill-dir>/scripts/mode_router.py --independent-writers 1
+```
+
+代码量、文件数、“全部修复”或历史上曾使用 Run 都不是升级理由。
 
 事实分工：
 
@@ -68,6 +83,24 @@ description: Use when a user wants to understand or manually start an Agent role
 - **Protocol v3 Run**保存冻结任务、事件、ACK/lease、锁、result、Review、QA、证据和发布门禁。
 - **长期层 + Run 层**中，Run 是执行状态真源；长期层只通过校验后的 Bridge 沉淀结果。
 - **Candidate Index**只是派生视图，不授予发布权限，也不是项目构建输入。
+
+### 通用 Integration Policy、候选和收口
+
+项目可以在外部 Governance Home 或调用方指定位置提供 `integration-policy.yaml`。它必须由项目适配层
+声明 canonical/working 分支、候选提交模式、argv 命令、高冲突路径、版本权威引用和 freeze 能力；Skill
+核心不内置 `main`、`update` 或任何项目分支。未配置或校验失败时，`integration_policy.py` 只返回
+read-only blocker。
+
+普通任务默认不产生 candidate。需要并行写入时，Owner 可在独立 workspace 形成
+`integration-candidate.json`，使用 `integration_lane.py evaluate` 验证真实 baseline、candidate commit、
+changed paths、验证记录、依赖、逻辑/环境资源、workspace、version source、migration order 和 release
+lane。只有互不冲突的候选才同时保持 `ready`；`integrate` 必须由唯一串行 lane、显式 `--user-confirmed`
+和 Git 预检执行，且 candidate commit 必须在目标分支可达。
+
+Release Freeze 只阻止 canonical ref 移动，不阻止独立候选形成。候选报告分开记录
+`local/candidate/quality/canonical/deployments/external_acceptance` 六层证据，缺失一律是 `not_verified`。
+临时 worktree 只能先 `finalize_worktree.py audit`，确认 clean、无 MERGE_HEAD、无活动进程、无 freeze/release
+占用且 candidate commit 有其它 ref 保存后，用户确认才可普通移除；不使用 reset、clean 或 force。
 
 ## Direct 工作流
 
@@ -122,7 +155,7 @@ python3 <skill-dir>/scripts/init_project_agents.py \
   --governance-root "<governance-home>" \
   --project-id "<project-id>" \
   --project-name "<project-name>" \
-  --agents "A01-coordinator,A02-owner,A03-quality" \
+  --agents "coordinator,owner,quality" \
   --governance standard \
   --user-confirmed
 ```
@@ -185,6 +218,16 @@ Light/Standard Emergency 的低风险、本地可逆任务不因缺少完整 Run
 
 详见 [version-governance.md](references/version-governance.md)。
 
+Integration Policy 与串行候选命令：
+
+```bash
+python3 <skill-dir>/scripts/integration_policy.py \
+  --policy "<external-policy>" --project-root "<project-root>"
+python3 <skill-dir>/scripts/integration_lane.py evaluate \
+  --project-root "<project-root>" --policy "<external-policy>" \
+  --candidate "<candidate-json>"
+```
+
 ## Emergency、冲突与可靠性
 
 Coordinated 保持 Protocol v3 语义：
@@ -197,6 +240,7 @@ Coordinated 保持 Protocol v3 语义：
 - `blocked_tasks` 表示任务级门禁缺口，`deferred_tasks` 表示容量或冲突等待，`run_level_blockers` 只保留 manifest、Protocol、项目根失效等全局故障。
 - 超时先检查副作用；不伪造失败，不自动重投可能已产生副作用的任务。
 - 不覆盖用户或其他任务的未提交改动。
+- 协同消息只传播 `STARTED`、`BLOCKED`、`CANDIDATE_READY`、`INTEGRATED`；普通进度不触发新的唤醒。
 
 ## 收口、Bridge 与 Candidate
 

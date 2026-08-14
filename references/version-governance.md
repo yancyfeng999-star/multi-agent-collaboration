@@ -4,6 +4,25 @@
 
 四个版本对象必须独立：Skill 版本以根 `VERSION` 为权威源；Protocol 版本当前为 `3`；Governance Storage Schema 当前为 `1.1`（兼容读取 `1.0`）；项目业务版本只以目标项目自身权威源为准。
 
+集成分支也属于项目适配层，而不是 Skill 的版本默认值。项目可以在外部治理目录提供
+`integration-policy.yaml`，声明自己的 canonical/working 分支、候选提交权限、冲突路径提示、
+版本权威引用和 release freeze 能力。Skill 不内置 `main`、`update` 或其它分支名；策略缺失、
+过期或校验失败时，仍可做只读路由和候选分析，但不得创建分支、提交、移动 canonical ref 或
+声称版本已经集成。策略中的命令必须是 argv 数组，默认 `candidate_submit_mode` 为 `manual`，
+`authorized_auto` 只能由项目明确授权并提供安全命令后启用。
+
+## 0.1 Release Freeze 与证据分层
+
+Release Freeze 是 canonical movement 的门禁，不是停止独立候选工作的全局开关。冻结记录固定
+canonical branch、冻结时的精确 commit、范围、原因和过期时间；冻结有效时，候选仍可在自己的
+工作区形成并完成只读评估，但任何 canonical branch 移动都必须被拒绝。即使调用方改变 scope，
+也不能绕过 active freeze 或掩盖 canonical commit mismatch。
+
+候选索引使用六层独立事实：`local`、`candidate`、`quality`、`canonical`、`deployments` 和
+`external_acceptance`。缺失事实一律输出 `not_verified`；`blocked_unknown` 只表示已观察到阻塞
+但无法证明结果。部署、外部验收、Provider 或客户名称由项目适配层填写，Skill 不预置任何环境名，
+也不把部署成功推断为外部验收成功。
+
 Direct 默认不创建版本合同或 Run，但仍必须按项目自身规则判断本次交付是否应更新业务版本。Coordinated 才使用 `tracked`/`not_applicable`、version contract、Release Train 和 RC，且这些资料只写项目外 Governance Home。
 
 旧 Run 不会被原地改写。`migrate_run_optimization.py` 只迁移 v3 Run 的可选执行字段；`migrate_governance_storage.py` 将旧项目内治理资料复制并校验到 Governance Home。两种迁移都不改变项目业务版本，也不授予发布权限。

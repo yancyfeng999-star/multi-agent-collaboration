@@ -7,7 +7,7 @@
 | 中文名称 | 多智能体协同 |
 | English Name | Multi-Agent Collaboration |
 | Skill ID | `multi-agent-collaboration` |
-| Skill Version | `2.1.0` |
+| Skill Version | `2.2.0` |
 | Protocol Version | `3` |
 | Governance Storage Schema | `1.1`（兼容读取 `1.0`） |
 | GitHub | [yancyfeng999-star/multi-agent-collaboration](https://github.com/yancyfeng999-star/multi-agent-collaboration) |
@@ -90,7 +90,7 @@ python3 scripts/init_project_agents.py \
   --governance-root "<governance-home>" \
   --project-id "<project-id>" \
   --project-name "<project-name>" \
-  --agents "A01-coordinator,A02-owner,A03-quality" \
+  --agents "coordinator,owner,quality" \
   --governance standard \
   --user-confirmed
 ```
@@ -126,12 +126,29 @@ Light/Standard 的低风险、本地可逆 Emergency 不必先建立完整 Run �
 
 | 对象 | 当前值/权威源 | 变化条件 |
 | --- | --- | --- |
-| Skill 版本 | `2.1.0` / [VERSION](VERSION) | Skill 用户可见行为、文档、脚本、Schema 或默认值变化 |
+| Skill 版本 | `2.2.0` / [VERSION](VERSION) | Skill 用户可见行为、文档、脚本、Schema 或默认值变化 |
 | Protocol 版本 | `3` / `scripts/protocol_lib.py` | 任务、事件、状态机、证据或恢复语义不兼容变化 |
 | Storage Schema | `1.1` / binding schema（兼容 `1.0`） | Governance Home 布局与绑定契约变化 |
 | 项目业务版本 | 目标项目唯一版本权威源 | 项目交付范围、兼容性或发布内容变化 |
 
 Skill 升级不会自动修改项目业务版本。版本治理集中由 Coordinator 承担，不单独增加 Version Agent。
+
+## 项目适配、候选与收口
+
+这是通用 Skill：它不猜测任何项目的 `main`、`update`、环境、Provider、发布命令或版本文件。
+项目若需要集成治理，可在外部 Governance Home 提供可选 `integration-policy.yaml`；策略声明
+canonical/working 分支、候选提交权限、argv 命令、高冲突路径、版本权威引用和 freeze 能力。缺少
+策略时，Skill 仍能做 Direct/Reviewed 路由和只读候选分析，但不会创建分支、提交或移动 canonical ref。
+
+独立 Owner 可以分别形成候选，`integration_lane.py evaluate` 只暂停实际存在 changed path、依赖、
+逻辑资源、workspace、环境资源、版本源、migration order 或 release lane 冲突的候选；无交集候选可
+同时保持 ready。唯一串行 Integration Lane 在显式 `--user-confirmed`、单一锁和 `git merge-tree`
+预检下集成，保留 candidate commit 的可达性。Release Freeze 只冻结 canonical，不阻断候选产生。
+
+证据分为 `local`、`candidate`、`quality`、`canonical`、`deployments` 和 `external_acceptance`；
+缺失证据统一写成 `not_verified`，不把部署成功推断为外部验收成功。临时 worktree 先审计再收口，
+不使用 `reset`、`clean` 或 `--force`。协同消息只保留 `STARTED`、`BLOCKED`、`CANDIDATE_READY`、
+`INTEGRATED`，普通进度不会造成额外唤醒。
 
 ## 旧项目迁移
 

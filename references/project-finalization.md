@@ -2,6 +2,14 @@
 
 Project checkpoint 与 finalization 是 Coordinated 的开发治理收口，只写外部 Governance Home。它们不是网站构建、测试、部署或运行的前置条件。
 
+## Canonical freeze and evidence layers
+
+项目收口前先读取外部的 release freeze 与候选证据。active freeze 只阻止 canonical ref 移动，
+不阻止独立候选继续产生；freeze 的 canonical commit、branch、scope 和 expiry 必须逐项匹配。
+候选报告分开显示 `local`、`candidate`、`quality`、`canonical`、`deployments` 和
+`external_acceptance`，任何未提供的层都保持 `not_verified`，不能用实现完成或部署完成替代外部
+验收。环境、Provider、客户和发布系统名称全部来自项目 adapter，不由 Skill 推断。
+
 ## Project checkpoint
 
 ```bash
@@ -41,3 +49,6 @@ Finalization fail-closed，直到：所有 Run 已完成/归档且已 Bridge；�
 `--dry-run` 执行所有门禁但不写入。`.project-finalization.lock` 串行写入。完整已有 bundle 幂等返回；部分 bundle、不同 Run 集合或任意 source hash 漂移都拒绝覆盖。
 
 Finalization 记录残余风险和审批，不默认接受风险，不授予项目发布权限。
+
+临时 worktree 的删除独立于项目 finalization。先执行只读 audit 并保存结果，再由用户确认 cleanup；
+dirty、冲突、活动进程、活动 freeze/release、未保存 candidate commit 或未知 worktree 均不得收口。

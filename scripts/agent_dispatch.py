@@ -18,6 +18,7 @@ from executor_pool import allocate_executor, release_executor
 from preflight_lib import _load_context
 from protocol_lib import atomic_write, frontmatter, json_string_list, path_within, paths_overlap, scalar_map, sha256, valid_iso8601
 from wake_agent import wake_agent
+from message_contract import compact_messages
 
 
 def _capabilities(profile: dict[str, object]) -> set[str]:
@@ -256,7 +257,22 @@ def publish(args: argparse.Namespace) -> dict[str, Any]:
             worktree_policy=args.workspace_policy,
             dry_run=args.dry_run,
         )
-    result: dict[str, Any] = {"ready": True, **decision, "task_id": args.task_id, "dry_run": args.dry_run}
+    baseline = context["manifest"].get("baseline_commit") or context["manifest"].get("version_contract_ref_sha256") or "unknown"
+    result: dict[str, Any] = {
+        "ready": True,
+        **decision,
+        "task_id": args.task_id,
+        "dry_run": args.dry_run,
+        "coordination_messages": compact_messages([
+            {
+                "kind": "STARTED",
+                "task_id": args.task_id,
+                "owner": args.owner_agent,
+                "paths": args.owned_path or ["unknown"],
+                "baseline": baseline,
+            }
+        ]),
+    }
     if executor_binding:
         result["executor_id"] = executor_binding["executor_id"]
     if args.dry_run:

@@ -14,6 +14,7 @@ from executor_pool import allocate_executor, expire_stale_executors
 from conflict_model import find_conflict
 from preflight_lib import run_preflight
 from wake_agent import wake_agent
+from message_contract import compact_messages
 
 ACTIVE = {"dispatched", "acknowledged", "running", "handoff_ready", "reviewing", "qa_running", "release_ready"}
 TERMINAL = {"completed", "failed", "cancelled", "superseded", "expired", "dead_letter"}
@@ -88,6 +89,47 @@ def _emit(run_dir: Path, task_id: str, event: str, target: str, task_path: Path)
     result = subprocess.run(command, capture_output=True, text=True)
     if result.returncode:
         raise RuntimeError(result.stderr.strip() or result.stdout.strip())
+
+
+def _coordination_messages(
+    dispatches: list[dict[str, Any]],
+    blocked: list[dict[str, Any]],
+    blocked_tasks: list[dict[str, Any]],
+    tasks: dict[str, tuple[Path, dict[str, str]]],
+    manifest: dict[str, str],
+) -> list[dict[str, Any]]:
+    messages: list[dict[str, Any]] = []
+    baseline = manifest.get("baseline_commit") or manifest.get("version_contract_ref_sha256") or "unknown"
+    for dispatch in dispatches:
+        task_id = str(dispatch.get("task_id", ""))
+        pair = tasks.get(task_id)
+        if not pair or dispatch.get("status") == "awaiting_claim":
+            continue
+        task = pair[1]
+        try:
+            paths = json_string_list(task.get("owned_paths", "[]"), field="owned_paths", source=task_id)
+        except ValueError:
+            paths = []
+        messages.append({
+            "kind": "STARTED",
+            "task_id": task_id,
+            "owner": str(dispatch.get("agent_id", task.get("owner_agent", "owner"))),
+            "paths": paths or ["unknown"],
+            "baseline": baseline,
+        })
+    for item in [*blocked, *blocked_tasks]:
+        task_id = str(item.get("task_id", "run"))
+        reason = str(item.get("reason") or item.get("blocked_by") or "blocked")
+        messages.append({
+            "kind": "BLOCKED",
+            "task_id": task_id,
+            "blocker_code": reason.split(":", 1)[0],
+            "observed": reason,
+            "scope_impact": [task_id],
+            "safe_default": "do_not_dispatch",
+            "recommended_disposition": str(item.get("next_action") or "inspect_and_re_evaluate"),
+        })
+    return compact_messages(messages)
 
 
 def tick(run_dir: str | Path, *, dry_run: bool = False, emit_events: bool = True, now: datetime | None = None) -> dict[str, Any]:
@@ -270,6 +312,7 @@ def tick(run_dir: str | Path, *, dry_run: bool = False, emit_events: bool = True
         if executor_id:
             dispatch["executor_id"] = executor_id
         dispatches.append(dispatch)
+    coordination_messages = _coordination_messages(dispatches, blocked, blocked_tasks, tasks, manifest)
     return {
         "run_id": manifest["run_id"],
         "bounded": True,
@@ -283,6 +326,7 @@ def tick(run_dir: str | Path, *, dry_run: bool = False, emit_events: bool = True
         "timeouts": _timeouts(run_dir, manifest, records, states, now),
         "preflight": preflight_report,
         "preflight_reports": task_preflight_reports,
+        "coordination_messages": coordination_messages,
     }
 
 

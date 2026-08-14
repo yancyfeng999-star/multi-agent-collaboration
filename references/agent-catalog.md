@@ -96,6 +96,14 @@ Coordinated Governance Home 有 `TEAM.yaml` 时，可以将稳定角色字段投
 
 切换后仍遵循 `SKILL.md` 的最小 Agent 原则；页面本身不负责调度。
 
+## Integration Owner 能力
+
+Integration Owner 是 Coordinator 可按需承担的单写入能力，不新增长期角色。它只消费已验证
+候选，依据项目 Integration Policy 串行推进 working/canonical branch，并记录精确 commit
+可达性。普通 Owner 可以并行产生互不冲突的候选，但不能竞争移动 canonical branch。
+
+Release 仍是独立的真实发布能力；Integration Owner 不因此获得生产、凭据或部署权限。
+
 ## 版本边界
 
 - 角色目录、启动表单和用户入口变化属于 Skill 用户可见变化，应更新 Skill 版本和
