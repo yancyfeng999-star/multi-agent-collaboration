@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class SkillContractTests(unittest.TestCase):
     def test_description_is_trigger_only_and_routing_table_exists(self) -> None:
         text = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        self.assertEqual((ROOT / "VERSION").read_text(encoding="utf-8").strip(), "2.2.0")
         match = re.match(r"---\n(?P<frontmatter>.*?)\n---\n", text, re.DOTALL)
         if match is None:
             self.fail("SKILL.md frontmatter is missing")
@@ -52,6 +53,8 @@ class SkillContractTests(unittest.TestCase):
         self.assertIn("Integration Owner", catalog)
         self.assertIn("不新增长期角色", catalog)
         self.assertNotIn("A12", skill)
+        self.assertIn("CANDIDATE_READY", skill)
+        self.assertIn("Release Freeze", skill)
 
 
 if __name__ == "__main__":

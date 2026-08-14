@@ -54,7 +54,10 @@ def _relative_path(value: Any, *, field: str) -> str:
 
 def _list(value: Any, *, field: str) -> list[str]:
     if isinstance(value, str):
-        parsed = json.loads(value)
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise ProtocolError(f"{field} must be a JSON inline list") from exc
     else:
         parsed = value
     if not isinstance(parsed, list) or not all(isinstance(item, str) and item for item in parsed):
@@ -77,7 +80,10 @@ def _bool(value: Any, *, field: str) -> bool:
 def _load_flat_or_json(path: Path) -> dict[str, Any]:
     text = path.read_text(encoding="utf-8")
     if text.lstrip().startswith("{"):
-        value = json.loads(text)
+        try:
+            value = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ProtocolError(f"invalid JSON in {path}: {exc}") from exc
     else:
         values = scalar_map(text, source=str(path))
         value = dict(values)
@@ -264,6 +270,8 @@ def validate_evidence_layers(value: dict[str, Any]) -> dict[str, Any]:
     missing = required - value.keys()
     if missing:
         raise ProtocolError(f"evidence layers are missing fields: {', '.join(sorted(missing))}")
+    if value.get("schema_version") != SCHEMA_VERSION:
+        raise ProtocolError(f"evidence layers schema_version must be {SCHEMA_VERSION}")
     return build_evidence_layers(
         value["candidate_id"],
         value["candidate_commit"],

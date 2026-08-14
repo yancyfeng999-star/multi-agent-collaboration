@@ -14,6 +14,10 @@
 
 Direct 默认不创建治理资料。Coordinated 只在有真实需求时启用，不作为网站更新的默认前置。
 
+项目若需要分支集成治理，可在外部提供可选 Integration Policy。Owner 在独立 workspace 产生候选，
+候选评估按真实冲突维度并行；唯一 Integration Lane 串行移动 working/canonical ref。Release Freeze
+只冻结 canonical，六层证据和临时 worktree 收口都属于开发治理侧车，目标项目运行时不读取这些资料。
+
 ## 2. 物理分离
 
 ### 目标项目
@@ -128,6 +132,11 @@ Protocol v3 completion gate
 ```
 
 任何一步失败都必须修复事实或引用后重试，不让 finalization 自动补齐。Candidate Index 只读且不授权发布。
+
+候选集成侧车使用 `integration-policy.yaml`、`integration-candidate.json`、release freeze 和
+evidence layers。候选 commit、验证和冲突状态独立于 Protocol v3 Run；集成完成必须输出
+`integrated_commit` 与 candidate reachability 证据。协同消息只保留 STARTED、BLOCKED、
+CANDIDATE_READY、INTEGRATED 四类摘要，普通进度不会触发额外编排。
 
 ## 7. 恢复
 

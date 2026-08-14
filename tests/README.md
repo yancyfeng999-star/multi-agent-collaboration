@@ -29,6 +29,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q
 | 1.4.x 快车道与自助协同 | execution/dispatch policy、scope/preflight、工作 Agent 子任务发布、任务/线程串行 claim、超时恢复和候选索引 |
 | 2.0.0 外置开发治理 | Direct 零写入、Coordinated 外置绑定、Agent/Run 侧车存储、旧资料事务迁移、项目零运行依赖与旧目录 Git 门禁 |
 | 2.1.0 Emergency 并行执行 | Direct Hotfix/Coordinated Emergency 路由、任务级 Preflight、同角色 executor pool、冲突指纹、worktree policy、executor release 和 Storage Schema 1.1 兼容 |
+| 2.2.0 通用集成治理 | 证据化模式路由、可选 Integration Policy、独立候选并行评估、串行 Integration Lane、Release Freeze、六层证据、worktree 安全收口和四类摘要消息 |
 
 ## 发布门禁
 
@@ -42,7 +43,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q
 6. Markdown 本地链接检查；
 7. `git diff --check`。
 
-当前 v2.1.0 基线必须同时覆盖 Protocol v3、Emergency 任务级调度、短期 executor 和外置 Governance Home。
+当前 v2.2.0 基线必须同时覆盖 Protocol v3、Emergency 任务级调度、短期 executor、外置 Governance Home、通用候选集成、freeze、证据分层、worktree 收口和摘要消息。
 本次实现用 `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p 'test_*.py' -q`
 验证的真实测试数以最终运行输出为准；同时要求顶层 CLI help、JSON Schema、
 HTML/JavaScript 静态检查、Markdown 本地链接和 `git diff --check` 通过。
